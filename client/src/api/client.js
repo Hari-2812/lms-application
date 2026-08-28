@@ -39,7 +39,13 @@ export const register = (payload) => api.post('/auth/register', payload).then((r
 export const logout = () => api.post('/auth/logout').then((r) => r.data);
 
 // --- courses --------------------------------------------------------------
-export const getCourses = () => api.get('/courses').then((r) => r.data);
+export const getCourses = () =>
+  api.get('/courses').then((r) => {
+    if (!Array.isArray(r.data)) {
+      throw new Error('The course API returned an invalid response. Check VITE_API_URL.');
+    }
+    return r.data;
+  });
 export const getCourse = (courseId) => api.get(`/courses/${courseId}`).then((r) => r.data);
 export const getCourseLessons = (courseId) =>
   api.get(`/courses/${courseId}/lessons`).then((r) => r.data);

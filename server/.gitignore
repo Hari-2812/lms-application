@@ -1,0 +1,11 @@
+node_modules/
+.env
+demo-media/*.mp4
+*.log
+.mongodb-data/
+
+# Google service-account keys — never commit these.
+credentials/*
+!credentials/README.md
+*service-account*.json
+lms-drive-videos-*.json

@@ -51,6 +51,14 @@ export const getCourseLessons = (courseId) =>
   api.get(`/courses/${courseId}/lessons`).then((r) => r.data);
 export const getLesson = (lessonId) => api.get(`/lessons/${lessonId}`).then((r) => r.data);
 
+// --- admin ----------------------------------------------------------------
+export const createCourse = (payload) => api.post('/admin/courses', payload).then((r) => r.data);
+export const updateCourse = (courseId, payload) => api.put(`/admin/courses/${courseId}`, payload).then((r) => r.data);
+export const deleteCourse = (courseId) => api.delete(`/admin/courses/${courseId}`).then((r) => r.data);
+export const addLesson = (payload) => api.post('/admin/lessons', payload).then((r) => r.data);
+export const updateLesson = (lessonId, payload) => api.put(`/admin/lessons/${lessonId}`, payload).then((r) => r.data);
+export const deleteLesson = (lessonId) => api.delete(`/admin/lessons/${lessonId}`).then((r) => r.data);
+
 // --- progress -------------------------------------------------------------
 export const getProgress = (lessonId) => api.get(`/progress/${lessonId}`).then((r) => r.data);
 export const saveProgress = (payload) => api.post('/progress', payload).then((r) => r.data);
@@ -59,9 +67,18 @@ export const saveProgress = (payload) => api.post('/progress', payload).then((r)
  * The video element's src. Always our own API — never a drive.google.com URL.
  * Relative when API_ORIGIN is empty, absolute on a split deploy.
  */
-export const streamUrl = (lessonId) => `${API_ORIGIN}/api/videos/${lessonId}/stream`;
+export const streamUrl = (lessonId) => {
+  const auth = api.defaults.headers.common.Authorization;
+  const token = auth ? auth.split(' ')[1] : '';
+  const qs = token ? `?token=${token}` : '';
+  return `${API_ORIGIN}/api/videos/${lessonId}/stream${qs}`;
+};
 
 /** Normalises an axios failure into a message we can show a student. */
 export function toErrorMessage(err, fallback = 'Something went wrong. Please try again.') {
-  return err?.response?.data?.error || err?.message || fallback;
+  const responseError = err?.response?.data?.error;
+  if (typeof responseError === 'string') return responseError;
+  if (responseError && typeof responseError.message === 'string') return responseError.message;
+  if (typeof err?.message === 'string') return err.message;
+  return fallback;
 }

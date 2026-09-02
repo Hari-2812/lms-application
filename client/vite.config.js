@@ -10,7 +10,7 @@ export default defineConfig({
       // only ever sees http://localhost:5173/api/videos/:lessonId/stream —
       // never a drive.google.com URL.
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
     },

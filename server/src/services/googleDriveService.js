@@ -173,22 +173,41 @@ function getDriveClient() {
 
 /**
  * Metadata for a private Drive file.
- * Deliberately returns only id/name/mimeType/size — never webViewLink or
- * webContentLink, so no Drive URL can leak upward to the client.
+ * Returns additional fields as requested for the Lesson schema.
  */
 async function getVideoMetadata(fileId) {
   const drive = getDriveClient();
   const { data } = await drive.files.get({
     fileId,
-    fields: 'id, name, mimeType, size',
+    fields: 'id, name, mimeType, size, webViewLink, parents, videoMediaMetadata(durationMillis)',
     supportsAllDrives: true,
   });
+
+  let folderId = null;
+  let folderName = null;
+  
+  if (data.parents && data.parents.length > 0) {
+    folderId = data.parents[0];
+    try {
+      // Re-use the existing getFolderMetadata function to get the parent folder's name
+      const folderMeta = await getFolderMetadata(folderId);
+      folderName = folderMeta.name;
+    } catch (err) {
+      console.warn(`[drive] Could not fetch parent folder metadata for ${folderId}`);
+    }
+  }
 
   return {
     id: data.id,
     name: data.name,
     mimeType: data.mimeType || 'video/mp4',
     size: Number(data.size || 0),
+    webViewLink: data.webViewLink || null,
+    folderId,
+    folderName,
+    durationSeconds: data.videoMediaMetadata?.durationMillis
+      ? Math.round(Number(data.videoMediaMetadata.durationMillis) / 1000)
+      : 0,
   };
 }
 

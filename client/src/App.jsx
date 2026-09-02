@@ -6,6 +6,7 @@ import PublicLayout from './components/layout/PublicLayout.jsx';
 import DashboardLayout from './components/layout/DashboardLayout.jsx';
 import LearnLayout from './components/layout/LearnLayout.jsx';
 import ProtectedRoute from './components/layout/ProtectedRoute.jsx';
+import AdminRoute from './components/layout/AdminRoute.jsx';
 
 import Home from './pages/Home.jsx';
 import Courses from './pages/Courses.jsx';
@@ -25,6 +26,7 @@ const Wishlist = lazy(() => import('./pages/Wishlist.jsx'));
 const Profile = lazy(() => import('./pages/Profile.jsx'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'));
 const HowItWorksPage = lazy(() => import('./pages/HowItWorksPage.jsx'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard.jsx'));
 
 function RouteFallback() {
   return (
@@ -101,6 +103,11 @@ export default function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/how-it-works" element={<HowItWorksPage />} />
+              <Route path="/admin" element={
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
+              } />
             </Route>
 
             {/* The player gets its own full-width shell. */}

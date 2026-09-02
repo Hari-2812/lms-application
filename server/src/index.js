@@ -25,6 +25,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const ALLOWED_ORIGINS = (process.env.CLIENT_URL || '')
   .split(',')
   .map((origin) => origin.trim())
+  .map((origin) => origin.replace(/\/$/, ''))
   .filter(Boolean);
 
 const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;

@@ -13,6 +13,8 @@ export function LoadingState({ label = 'Loading…' }) {
 }
 
 export function ErrorState({ message }) {
+  const displayMessage = typeof message === 'string' ? message : 'The API could not be reached.';
+
   return (
     <div role="alert" className="card flex items-start gap-3 p-5">
       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-red-50 text-red-600">
@@ -20,7 +22,7 @@ export function ErrorState({ message }) {
       </span>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-ink-900">Something went wrong</p>
-        <p className="mt-1 text-[13px] leading-relaxed text-ink-600">{message}</p>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-600">{displayMessage}</p>
         <p className="mt-2 text-[13px] text-ink-500">
           Check that the API is running on{' '}
           <code className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[12px]">

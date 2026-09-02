@@ -49,7 +49,7 @@ function parseRange(rangeHeader, size) {
 
 /** Resolve the local demo file for a lesson, if one exists. */
 function resolveLocalMedia(lesson) {
-  const candidates = [`${lesson.videoFileId}.mp4`, 'sample.mp4'];
+  const candidates = [`${lesson.driveFileId}.mp4`, 'sample.mp4'];
   for (const name of candidates) {
     const filePath = path.join(DEMO_MEDIA_DIR, name);
     if (fs.existsSync(filePath)) return filePath;
@@ -97,11 +97,11 @@ function streamFromLocalFile(filePath, rangeHeader) {
  * @param {string|undefined} rangeHeader raw `req.headers.range`
  */
 async function getLessonVideoStream(lessonId, rangeHeader) {
-  const lesson = await Lesson.findById(lessonId).select('+videoFileId');
+  const lesson = await Lesson.findById(lessonId).select('+driveFileId');
   if (!lesson) throw notFound('Lesson not found');
-  if (!lesson.videoFileId) throw notFound('Lesson has no video attached');
+  if (!lesson.driveFileId) throw notFound('Lesson has no video attached');
 
-  const useDrive = driveService.isConfigured() && !isPlaceholderFileId(lesson.videoFileId);
+  const useDrive = driveService.isConfigured() && !isPlaceholderFileId(lesson.driveFileId);
 
   // ---- Fallback: no usable Drive file -> stream a local demo file --------
   if (!useDrive) {
@@ -122,7 +122,7 @@ async function getLessonVideoStream(lessonId, rangeHeader) {
   // ---- Real path: private Google Drive via the Drive API -----------------
   let driveResponse;
   try {
-    driveResponse = await driveService.getVideoStream(lesson.videoFileId, rangeHeader);
+    driveResponse = await driveService.getVideoStream(lesson.driveFileId, rangeHeader);
   } catch (err) {
     // A misconfigured folder/share should not take the demo down: fall back to
     // local media if we have it, and make the real cause obvious in the log.
@@ -165,15 +165,15 @@ async function getLessonVideoStream(lessonId, rangeHeader) {
 
 /** Non-streaming metadata, used by the "How it works" panel. */
 async function getLessonVideoInfo(lessonId) {
-  const lesson = await Lesson.findById(lessonId).select('+videoFileId');
+  const lesson = await Lesson.findById(lessonId).select('+driveFileId');
   if (!lesson) throw notFound('Lesson not found');
 
-  if (!driveService.isConfigured() || isPlaceholderFileId(lesson.videoFileId)) {
+  if (!driveService.isConfigured() || isPlaceholderFileId(lesson.driveFileId)) {
     return { source: 'local-demo-media', available: Boolean(resolveLocalMedia(lesson)) };
   }
 
   try {
-    const meta = await driveService.getVideoMetadata(lesson.videoFileId);
+    const meta = await driveService.getVideoMetadata(lesson.driveFileId);
     // Note: only size/mimeType are surfaced. The file id stays server-side.
     return { source: 'google-drive', available: true, size: meta.size, mimeType: meta.mimeType };
   } catch {

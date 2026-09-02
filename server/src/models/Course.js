@@ -5,6 +5,7 @@ const courseSchema = new mongoose.Schema(
     title: { type: String, required: true },
     slug: { type: String, required: true, unique: true },
     description: { type: String, default: '' },
+    lessons: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lesson' }],
     instructor: { type: String, default: 'Demo Instructor' },
     level: { type: String, default: 'Beginner' },
     hours: { type: Number, default: 0 },

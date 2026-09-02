@@ -95,7 +95,7 @@ export default function CourseDetails() {
     { icon: BookOpen, label: `${course.lessonCount} lessons` },
     { icon: Clock, label: formatHours(course.hours) || formatDuration(totalSeconds) },
     { icon: BarChart3, label: course.level },
-    { icon: Globe, label: 'English' },
+    { icon: Globe, label: 'Tamil' },
     { icon: InfinityIcon, label: 'Lifetime access' },
   ].filter((fact) => fact.label);
 

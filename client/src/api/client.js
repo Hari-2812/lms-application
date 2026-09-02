@@ -68,8 +68,13 @@ export const saveProgress = (payload) => api.post('/progress', payload).then((r)
  * Relative when API_ORIGIN is empty, absolute on a split deploy.
  */
 export const streamUrl = (lessonId) => {
-  const auth = api.defaults.headers.common.Authorization;
-  const token = auth ? auth.split(' ')[1] : '';
+  let token = '';
+  try {
+    const session = JSON.parse(localStorage.getItem('lms.session'));
+    if (session && session.token) token = session.token;
+  } catch (e) {
+    // ignore
+  }
   const qs = token ? `?token=${token}` : '';
   return `${API_ORIGIN}/api/videos/${lessonId}/stream${qs}`;
 };

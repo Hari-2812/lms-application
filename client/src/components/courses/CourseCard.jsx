@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { BookOpen, CheckCircle2, Clock, Heart, PlayCircle, Users } from 'lucide-react';
+import { BookOpen, CheckCircle2, Clock, Heart, Lock, PlayCircle, Users } from 'lucide-react';
 import Badge from '../common/Badge.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
 import Rating from '../common/Rating.jsx';
@@ -23,6 +23,7 @@ export default function CourseCard({
 }) {
   const isEnrolled = variant === 'enrolled';
   const isComplete = course.progress >= 100;
+  const locked = course.hasAccess === false;
   const href = to || (isEnrolled ? `/my-courses/${course._id}` : `/courses/${course._id}`);
 
   const duration = formatHours(course.hours);
@@ -54,12 +55,20 @@ export default function CourseCard({
           )}
         </div>
 
-        {isComplete && (
+        {locked ? (
           <span className="absolute bottom-3 left-3">
-            <Badge tone="success" icon={CheckCircle2}>
-              Completed
+            <Badge tone="overlay" icon={Lock}>
+              Access restricted
             </Badge>
           </span>
+        ) : (
+          isComplete && (
+            <span className="absolute bottom-3 left-3">
+              <Badge tone="success" icon={CheckCircle2}>
+                Completed
+              </Badge>
+            </span>
+          )
         )}
       </div>
 
@@ -105,23 +114,30 @@ export default function CourseCard({
         {/* Everything below is pinned to the bottom so cards line up. */}
         <div className="mt-auto pt-4">
           {isEnrolled ? (
-            <>
-              <div className="mb-1.5 flex items-center justify-between text-xs">
-                <span className="font-medium text-ink-600">
-                  {course.completedLessons ?? 0} of {course.lessonCount ?? 0} lessons
-                </span>
-                <span className="font-semibold tabular-nums text-ink-900">{course.progress}%</span>
-              </div>
-              <ProgressBar
-                value={course.progress}
-                tone={isComplete ? 'success' : 'primary'}
-                label={`${course.title} progress`}
-              />
-              <p className="mt-3.5 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary-700">
-                <PlayCircle className="h-4 w-4" aria-hidden="true" />
-                {isComplete ? 'Review course' : course.progress > 0 ? 'Continue learning' : 'Start course'}
+            locked ? (
+              <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink-500">
+                <Lock className="h-4 w-4" aria-hidden="true" />
+                Contact your admin for access
               </p>
-            </>
+            ) : (
+              <>
+                <div className="mb-1.5 flex items-center justify-between text-xs">
+                  <span className="font-medium text-ink-600">
+                    {course.completedLessons ?? 0} of {course.lessonCount ?? 0} lessons
+                  </span>
+                  <span className="font-semibold tabular-nums text-ink-900">{course.progress}%</span>
+                </div>
+                <ProgressBar
+                  value={course.progress}
+                  tone={isComplete ? 'success' : 'primary'}
+                  label={`${course.title} progress`}
+                />
+                <p className="mt-3.5 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary-700">
+                  <PlayCircle className="h-4 w-4" aria-hidden="true" />
+                  {isComplete ? 'Review course' : course.progress > 0 ? 'Continue learning' : 'Start course'}
+                </p>
+              </>
+            )
           ) : (
             <div className="flex items-center justify-between gap-3 border-t border-ink-100 pt-3.5">
               <span className="truncate text-xs text-ink-500">{course.instructor}</span>

@@ -137,6 +137,7 @@ export function AuthProvider({ children }) {
   const value = useMemo(
     () => ({
       student: session?.student ?? null,
+      token: session?.token ?? null,
       isAuthenticated: Boolean(session?.student),
       initialising,
       signIn,

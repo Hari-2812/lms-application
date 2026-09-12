@@ -69,13 +69,13 @@ export default function Profile() {
                 </span>
               </div>
 
-              <div className="pb-1">
+              <div className="mt-10 pb-1">
                 <h2 className="text-lg font-bold text-ink-900">{student?.name}</h2>
                 <p className="text-sm text-ink-500">{form.headline || 'Student'}</p>
               </div>
             </div>
 
-            <Badge tone="primary" className="self-start sm:self-auto">
+            <Badge tone="primary" className="mt-10 self-start sm:self-auto">
               {completedLessonCount} lessons completed
             </Badge>
           </div>

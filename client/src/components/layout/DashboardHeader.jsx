@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Award, Bell, ChevronDown, LogOut, Menu, Search, Settings, User } from 'lucide-react';
+import { Award, Bell, CheckCheck, ChevronDown, LogOut, Menu, Search, Settings, User } from 'lucide-react';
 import Avatar from '../common/Avatar.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useNotifications } from '../../context/NotificationContext.jsx';
+
+/** "3m ago", "2h ago", "5d ago" — good enough for a notification list. */
+function timeAgo(dateString) {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(dateString).getTime()) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
 function greeting(date = new Date()) {
   const hour = date.getHours();
@@ -24,18 +36,26 @@ const menuItems = [
  */
 export default function DashboardHeader({ title, subtitle, onMenuClick = () => {} }) {
   const { student, signOut } = useAuth();
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [query, setQuery] = useState('');
   const menuRef = useRef(null);
+  const notifRef = useRef(null);
 
   useEffect(() => {
-    if (!menuOpen) return undefined;
+    if (!menuOpen && !notifOpen) return undefined;
 
     const onPointerDown = (event) => {
-      if (!menuRef.current?.contains(event.target)) setMenuOpen(false);
+      if (menuOpen && !menuRef.current?.contains(event.target)) setMenuOpen(false);
+      if (notifOpen && !notifRef.current?.contains(event.target)) setNotifOpen(false);
     };
-    const onKey = (event) => event.key === 'Escape' && setMenuOpen(false);
+    const onKey = (event) => {
+      if (event.key !== 'Escape') return;
+      setMenuOpen(false);
+      setNotifOpen(false);
+    };
 
     document.addEventListener('mousedown', onPointerDown);
     document.addEventListener('keydown', onKey);
@@ -43,7 +63,13 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [menuOpen]);
+  }, [menuOpen, notifOpen]);
+
+  const onNotificationClick = (notification) => {
+    if (!notification.read) markRead(notification.id);
+    setNotifOpen(false);
+    if (notification.courseId) navigate(`/my-courses/${notification.courseId}`);
+  };
 
   const firstName = (student?.name || 'there').split(' ')[0];
 
@@ -108,14 +134,77 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
           <Search className="h-[18px] w-[18px]" />
         </Link>
 
-        <Link
-          to="/achievements"
-          aria-label="Notifications"
-          className="relative rounded-lg p-2.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-900"
-        >
-          <Bell className="h-[18px] w-[18px]" />
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary-600 ring-2 ring-white" />
-        </Link>
+        <div ref={notifRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setNotifOpen((v) => !v)}
+            aria-label="Notifications"
+            aria-expanded={notifOpen}
+            aria-haspopup="menu"
+            className="relative rounded-lg p-2.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-900"
+          >
+            <Bell className="h-[18px] w-[18px]" />
+            {unreadCount > 0 && (
+              <span className="absolute right-1.5 top-1.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary-600 px-1 text-[10px] font-semibold text-white ring-2 ring-white">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          <AnimatePresence>
+            {notifOpen && (
+              <motion.div
+                role="menu"
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] origin-top-right rounded-xl border border-ink-100 bg-white p-1.5 shadow-pop"
+              >
+                <div className="flex items-center justify-between border-b border-ink-100 px-3 py-2.5">
+                  <p className="text-sm font-semibold text-ink-900">Notifications</p>
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={markAllRead}
+                      className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700"
+                    >
+                      <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <p className="px-3 py-6 text-center text-sm text-ink-500">You're all caught up.</p>
+                  ) : (
+                    notifications.map((notification) => (
+                      <button
+                        key={notification.id}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => onNotificationClick(notification)}
+                        className={`flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-ink-50 ${
+                          notification.read ? '' : 'bg-primary-50/60'
+                        }`}
+                      >
+                        <span className="flex w-full items-center gap-2 font-medium text-ink-900">
+                          {!notification.read && (
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary-600" aria-hidden="true" />
+                          )}
+                          <span className="truncate">{notification.title}</span>
+                        </span>
+                        <span className="line-clamp-2 text-xs text-ink-500">{notification.message}</span>
+                        <span className="text-[11px] text-ink-400">{timeAgo(notification.createdAt)}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         <div ref={menuRef} className="relative">
           <button

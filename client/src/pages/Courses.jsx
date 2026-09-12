@@ -1,19 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
-import Badge from '../components/common/Badge.jsx';
 import Button from '../components/common/Button.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
 import CourseGrid from '../components/courses/CourseGrid.jsx';
 import { ErrorState } from '../components/States.jsx';
+import { usePageMeta } from '../components/layout/DashboardLayout.jsx';
 import useCourses from '../hooks/useCourses.js';
 import useWishlist from '../hooks/useWishlist.js';
-import { categoriesFrom } from '../utils/course.js';
 
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced'];
 
 /**
- * Public course catalogue with search, category and level filters.
+ * Public course catalogue with search and level filters.
  * Filter state lives in the URL so results can be linked to and shared.
  */
 export default function Courses() {
@@ -22,8 +21,9 @@ export default function Courses() {
   const [params, setParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
 
+  usePageMeta('Browse Courses', 'Explore the full catalogue and find what to learn next.');
+
   const query = params.get('q') || '';
-  const category = params.get('category') || '';
   const level = params.get('level') || '';
 
   const setParam = (key, value) => {
@@ -33,13 +33,10 @@ export default function Courses() {
     setParams(next, { replace: true });
   };
 
-  const categories = useMemo(() => categoriesFrom(courses), [courses]);
-
   const results = useMemo(() => {
     const needle = query.trim().toLowerCase();
 
     return courses.filter((course) => {
-      if (category && course.category !== category) return false;
       if (level && course.level !== level) return false;
       if (!needle) return true;
 
@@ -47,9 +44,9 @@ export default function Courses() {
         .filter(Boolean)
         .some((field) => field.toLowerCase().includes(needle));
     });
-  }, [courses, query, category, level]);
+  }, [courses, query, level]);
 
-  const hasFilters = Boolean(query || category || level);
+  const hasFilters = Boolean(query || level);
 
   if (status === 'error') {
     return (
@@ -109,42 +106,6 @@ export default function Courses() {
 
       <section className="container py-10 lg:py-12">
         <div className={`${showFilters ? 'block' : 'hidden'} space-y-4 sm:block`}>
-          {categories.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-ink-500">
-                Category
-              </span>
-              <button
-                type="button"
-                onClick={() => setParam('category', '')}
-                aria-pressed={!category}
-                className={`rounded-lg px-3 py-1.5 text-[13px] font-medium transition ${
-                  !category
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-                }`}
-              >
-                All
-              </button>
-              {categories.map((item) => (
-                <button
-                  key={item.name}
-                  type="button"
-                  onClick={() => setParam('category', item.name)}
-                  aria-pressed={category === item.name}
-                  className={`rounded-lg px-3 py-1.5 text-[13px] font-medium transition ${
-                    category === item.name
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-ink-100 text-ink-700 hover:bg-ink-200'
-                  }`}
-                >
-                  {item.name}
-                  <span className="ml-1.5 opacity-60">{item.count}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-1 text-xs font-semibold uppercase tracking-wider text-ink-500">
               Level
@@ -182,12 +143,6 @@ export default function Courses() {
             {status === 'loading'
               ? 'Loading courses…'
               : `${results.length} ${results.length === 1 ? 'course' : 'courses'}`}
-            {category && (
-              <>
-                {' in '}
-                <Badge tone="primary">{category}</Badge>
-              </>
-            )}
           </p>
 
           {hasFilters && (

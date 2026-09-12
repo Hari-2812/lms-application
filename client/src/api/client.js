@@ -15,6 +15,8 @@ import axios from 'axios';
  */
 const API_ORIGIN = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
+export { API_ORIGIN };
+
 export const api = axios.create({ baseURL: `${API_ORIGIN}/api` });
 
 /**
@@ -50,6 +52,8 @@ export const getCourse = (courseId) => api.get(`/courses/${courseId}`).then((r) 
 export const getCourseLessons = (courseId) =>
   api.get(`/courses/${courseId}/lessons`).then((r) => r.data);
 export const getLesson = (lessonId) => api.get(`/lessons/${lessonId}`).then((r) => r.data);
+export const getCourseResources = (courseId) =>
+  api.get(`/courses/${courseId}/resources`).then((r) => r.data);
 
 // --- admin ----------------------------------------------------------------
 export const createCourse = (payload) => api.post('/admin/courses', payload).then((r) => r.data);
@@ -58,6 +62,35 @@ export const deleteCourse = (courseId) => api.delete(`/admin/courses/${courseId}
 export const addLesson = (payload) => api.post('/admin/lessons', payload).then((r) => r.data);
 export const updateLesson = (lessonId, payload) => api.put(`/admin/lessons/${lessonId}`, payload).then((r) => r.data);
 export const deleteLesson = (lessonId) => api.delete(`/admin/lessons/${lessonId}`).then((r) => r.data);
+
+// --- admin: overview stats ---------------------------------------------------
+export const getCourseStats = () => api.get('/admin/courses/stats').then((r) => r.data);
+
+// --- admin: per-student course access --------------------------------------
+export const getStudents = () => api.get('/admin/students').then((r) => r.data);
+export const getStudentAccess = (studentId) =>
+  api.get(`/admin/students/${studentId}/access`).then((r) => r.data);
+export const grantAccess = (studentId, courseId) =>
+  api.post('/admin/access', { studentId, courseId }).then((r) => r.data);
+export const revokeAccess = (studentId, courseId) =>
+  api.delete('/admin/access', { data: { studentId, courseId } }).then((r) => r.data);
+export const bulkGrantAccess = (studentIds, courseId) =>
+  api.post('/admin/access/bulk', { studentIds, courseId }).then((r) => r.data);
+export const broadcastNotification = (payload) =>
+  api.post('/admin/notifications', payload).then((r) => r.data);
+
+// --- admin: resources -------------------------------------------------------
+export const addResource = (payload) => api.post('/admin/resources', payload).then((r) => r.data);
+export const updateResource = (resourceId, payload) =>
+  api.put(`/admin/resources/${resourceId}`, payload).then((r) => r.data);
+export const deleteResource = (resourceId) =>
+  api.delete(`/admin/resources/${resourceId}`).then((r) => r.data);
+
+// --- notifications ----------------------------------------------------------
+export const getNotifications = (cursor) =>
+  api.get('/notifications', { params: cursor ? { cursor } : undefined }).then((r) => r.data);
+export const markNotificationRead = (id) => api.patch(`/notifications/${id}/read`).then((r) => r.data);
+export const markAllNotificationsRead = () => api.patch('/notifications/read-all').then((r) => r.data);
 
 // --- progress -------------------------------------------------------------
 export const getProgress = (lessonId) => api.get(`/progress/${lessonId}`).then((r) => r.data);

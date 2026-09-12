@@ -18,8 +18,8 @@ export default function AdminRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  // Check if it's the admin email
-  if (student.email !== 'vasanthkumar5151@gmail.com') {
+  // Cosmetic only — the server is the real enforcement point (requireAdmin).
+  if (student.role !== 'admin') {
     return <Navigate to="/dashboard" replace />;
   }
 

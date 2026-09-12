@@ -3,9 +3,12 @@ const courseController = require('../controllers/courseController');
 const lessonController = require('../controllers/lessonController');
 const videoController = require('../controllers/videoController');
 const progressController = require('../controllers/progressController');
+const notificationController = require('../controllers/notificationController');
+const resourceController = require('../controllers/resourceController');
 const adminController = require('../controllers/adminController');
 const authController = require('../controllers/authController');
-const { requireAuth, requireAdmin } = require('../middleware/authMiddleware');
+const { requireAuth, optionalAuth, requireAdmin } = require('../middleware/authMiddleware');
+const { requireCourseAccess, resolveCourseId } = require('../middleware/courseAccess');
 const driveService = require('../services/googleDriveService');
 
 const router = express.Router();
@@ -33,30 +36,86 @@ router.get('/health', (_req, res) => {
   });
 });
 
-// --- courses ---
-router.get('/courses', courseController.listCourses);
-router.get('/courses/:id', courseController.getCourse);
+// --- courses (publicly browsable; `hasAccess` reflects whoever, if anyone, is signed in) ---
+router.get('/courses', optionalAuth, courseController.listCourses);
+router.get('/courses/:id', optionalAuth, courseController.getCourse);
 
 // --- admin courses ---
 router.post('/admin/courses', requireAuth, requireAdmin, adminController.createCourse);
 router.put('/admin/courses/:id', requireAuth, requireAdmin, adminController.updateCourse);
 router.delete('/admin/courses/:id', requireAuth, requireAdmin, adminController.deleteCourse);
 
-// --- lessons ---
-router.get('/courses/:courseId/lessons', lessonController.listLessonsForCourse);
-router.get('/lessons/:id', lessonController.getLesson);
+// --- admin: overview stats ---
+router.get('/admin/courses/stats', requireAuth, requireAdmin, adminController.getCourseStats);
+
+// --- admin: per-student course access ---
+router.get('/admin/students', requireAuth, requireAdmin, adminController.listStudents);
+router.get('/admin/students/:studentId/access', requireAuth, requireAdmin, adminController.getStudentAccess);
+router.post('/admin/access', requireAuth, requireAdmin, adminController.grantAccess);
+router.delete('/admin/access', requireAuth, requireAdmin, adminController.revokeAccess);
+router.post('/admin/access/bulk', requireAuth, requireAdmin, adminController.bulkGrantAccess);
+
+// --- admin: announcements ---
+router.post('/admin/notifications', requireAuth, requireAdmin, adminController.broadcastNotification);
+
+// --- lessons (require an active access grant for the lesson's course) ---
+router.get(
+  '/courses/:courseId/lessons',
+  requireAuth,
+  requireCourseAccess(resolveCourseId.fromParam('courseId')),
+  lessonController.listLessonsForCourse
+);
+router.get(
+  '/lessons/:id',
+  requireAuth,
+  requireCourseAccess(resolveCourseId.fromLessonParam('id')),
+  lessonController.getLesson
+);
 
 // --- admin lessons ---
 router.post('/admin/lessons', requireAuth, requireAdmin, adminController.addLesson);
 router.put('/admin/lessons/:id', requireAuth, requireAdmin, adminController.updateLesson);
 router.delete('/admin/lessons/:id', requireAuth, requireAdmin, adminController.deleteLesson);
 
+// --- resources (study materials / PDFs) — same access grant as lessons ---
+router.get(
+  '/courses/:courseId/resources',
+  requireAuth,
+  requireCourseAccess(resolveCourseId.fromParam('courseId')),
+  resourceController.listResourcesForCourse
+);
+
+// --- admin resources ---
+router.post('/admin/resources', requireAuth, requireAdmin, adminController.addResource);
+router.put('/admin/resources/:id', requireAuth, requireAdmin, adminController.updateResource);
+router.delete('/admin/resources/:id', requireAuth, requireAdmin, adminController.deleteResource);
+
 // --- video (the demo's core endpoint) ---
-router.get('/videos/:lessonId/stream', requireAuth, videoController.streamLessonVideo);
-router.get('/videos/:lessonId/info', requireAuth, videoController.getVideoInfo);
+router.get(
+  '/videos/:lessonId/stream',
+  requireAuth,
+  requireCourseAccess(resolveCourseId.fromLessonParam('lessonId')),
+  videoController.streamLessonVideo
+);
+router.get(
+  '/videos/:lessonId/info',
+  requireAuth,
+  requireCourseAccess(resolveCourseId.fromLessonParam('lessonId')),
+  videoController.getVideoInfo
+);
 
 // --- progress ---
-router.post('/progress', requireAuth, progressController.saveProgress);
+router.post(
+  '/progress',
+  requireAuth,
+  requireCourseAccess(resolveCourseId.fromLessonBody('lessonId')),
+  progressController.saveProgress
+);
 router.get('/progress/:lessonId', requireAuth, progressController.getProgress);
+
+// --- notifications ---
+router.get('/notifications', requireAuth, notificationController.listNotifications);
+router.patch('/notifications/:id/read', requireAuth, notificationController.markRead);
+router.patch('/notifications/read-all', requireAuth, notificationController.markAllRead);
 
 module.exports = router;

@@ -18,11 +18,15 @@ const FILTERS = [
 ];
 
 export default function MyCourses() {
-  const { courses, status, error } = useCourses();
+  const { courses: allCourses, status, error } = useCourses();
   const { ids: wishlist, toggle: toggleWishlist } = useWishlist();
   const [filter, setFilter] = useState('all');
 
   usePageMeta('My Courses', 'Everything you are enrolled in, in one place.');
+
+  // Only courses the admin has actually granted — everything else lives in
+  // the Browse Courses catalogue instead.
+  const courses = useMemo(() => allCourses.filter((c) => c.hasAccess !== false), [allCourses]);
 
   const counts = useMemo(() => {
     const tally = { all: courses.length, 'in-progress': 0, completed: 0, 'not-started': 0 };

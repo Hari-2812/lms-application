@@ -1,12 +1,13 @@
 require('dotenv').config();
 
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 
 const { connectDB } = require('./config/db');
-const { mockAuth } = require('./middleware/mockAuth');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const driveService = require('./services/googleDriveService');
+const { initSocket } = require('./services/socketService');
 const routes = require('./routes');
 
 const PORT = process.env.PORT || 5000;
@@ -50,11 +51,13 @@ app.use(
   })
 );
 app.use(express.json());
-app.use(mockAuth);
 
 app.use('/api', routes);
 app.use(notFoundHandler);
 app.use(errorHandler);
+
+const httpServer = http.createServer(app);
+initSocket(httpServer, isOriginAllowed);
 
 async function start() {
   try {
@@ -65,7 +68,7 @@ async function start() {
     process.exit(1);
   }
 
-  app.listen(PORT, () => {
+  httpServer.listen(PORT, () => {
     const drive = driveService.getConfigSummary();
 
     const corsSummary = [

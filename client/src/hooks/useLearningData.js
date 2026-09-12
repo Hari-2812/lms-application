@@ -24,16 +24,21 @@ export default function useLearningData() {
 
     getCourses()
       .then(async (courseList) => {
+        // Progress, certificates and achievements only make sense for
+        // courses the student can actually open — admin-restricted ones
+        // stay in the catalogue but drop out of every derived figure here.
+        const accessible = courseList.filter((c) => c.hasAccess !== false);
+
         // The catalogue is small, so one parallel round-trip is cheaper than
         // asking each page to fetch lessons on its own.
         const lessonLists = await Promise.all(
-          courseList.map((course) => getCourseLessons(course._id).catch(() => []))
+          accessible.map((course) => getCourseLessons(course._id).catch(() => []))
         );
         if (cancelled) return;
 
-        setCourses(courseList);
+        setCourses(accessible);
         setLessonsByCourse(
-          Object.fromEntries(courseList.map((course, i) => [course._id, lessonLists[i]]))
+          Object.fromEntries(accessible.map((course, i) => [course._id, lessonLists[i]]))
         );
         setStatus('ready');
       })

@@ -10,6 +10,7 @@ import {
   Globe,
   Heart,
   Infinity as InfinityIcon,
+  Lock,
   ShieldCheck,
   Users,
 } from 'lucide-react';
@@ -52,17 +53,30 @@ export default function CourseDetails() {
     let cancelled = false;
     setStatus('loading');
 
-    Promise.all([getCourse(courseId), getCourseLessons(courseId)])
-      .then(([courseData, lessonData]) => {
-        if (cancelled) return;
+    getCourse(courseId)
+      .then((courseData) => {
+        if (cancelled) return null;
         setCourse(courseData);
-        setLessons(lessonData);
-        // A course with no outcomes or requirements yet would show an almost
-        // empty Overview, so open on the curriculum instead.
-        const hasOverview =
-          courseData.outcomes?.length > 0 || courseData.requirements?.length > 0;
-        setTab(hasOverview ? 'overview' : 'curriculum');
-        setStatus('ready');
+
+        // Locked courses have no lessons the student can see yet — skip the
+        // (403-ing) lessons request rather than surfacing it as an error.
+        if (!courseData.hasAccess) {
+          setLessons([]);
+          setTab('overview');
+          setStatus('ready');
+          return null;
+        }
+
+        return getCourseLessons(courseId).then((lessonData) => {
+          if (cancelled) return;
+          setLessons(lessonData);
+          // A course with no outcomes or requirements yet would show an
+          // almost empty Overview, so open on the curriculum instead.
+          const hasOverview =
+            courseData.outcomes?.length > 0 || courseData.requirements?.length > 0;
+          setTab(hasOverview ? 'overview' : 'curriculum');
+          setStatus('ready');
+        });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -90,6 +104,7 @@ export default function CourseDetails() {
   const started = course.progress > 0;
   const complete = course.progress >= 100;
   const saved = isSaved(course._id);
+  const locked = isAuthenticated && course.hasAccess === false;
 
   const facts = [
     { icon: BookOpen, label: `${course.lessonCount} lessons` },
@@ -102,12 +117,14 @@ export default function CourseDetails() {
   /* The primary action changes with the student's relationship to the course. */
   const primaryAction = !isAuthenticated
     ? { to: '/register', label: 'Enrol Now' }
-    : nextLesson
-      ? {
-          to: `/learn/${course._id}/${nextLesson._id}`,
-          label: complete ? 'Review Course' : started ? 'Continue Learning' : 'Start Course',
-        }
-      : { to: '/my-courses', label: 'Back to My Courses' };
+    : locked
+      ? null
+      : nextLesson
+        ? {
+            to: `/learn/${course._id}/${nextLesson._id}`,
+            label: complete ? 'Review Course' : started ? 'Continue Learning' : 'Start Course',
+          }
+        : { to: '/my-courses', label: 'Back to My Courses' };
 
   return (
     <div className="space-y-6">
@@ -203,15 +220,26 @@ export default function CourseDetails() {
             <section className="card overflow-hidden">
               <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
                 <h2 className="text-sm font-semibold text-ink-900">Course content</h2>
-                <p className="text-xs text-ink-500">
-                  {lessons.length} lessons · {formatDuration(totalSeconds)}
-                </p>
+                {!locked && (
+                  <p className="text-xs text-ink-500">
+                    {lessons.length} lessons · {formatDuration(totalSeconds)}
+                  </p>
+                )}
               </div>
-              <Curriculum
-                lessons={lessons}
-                courseId={course._id}
-                linkTo={(cid, lid) => (isAuthenticated ? `/learn/${cid}/${lid}` : '/login')}
-              />
+              {locked ? (
+                <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+                  <Lock className="h-8 w-8 text-ink-300" aria-hidden="true" />
+                  <p className="max-w-sm text-sm text-ink-600">
+                    Your access to this course is restricted. Contact your admin to get it unlocked.
+                  </p>
+                </div>
+              ) : (
+                <Curriculum
+                  lessons={lessons}
+                  courseId={course._id}
+                  linkTo={(cid, lid) => (isAuthenticated ? `/learn/${cid}/${lid}` : '/login')}
+                />
+              )}
             </section>
           )}
 
@@ -267,16 +295,28 @@ export default function CourseDetails() {
             </div>
 
             <div className="p-5">
-              {isAuthenticated ? (
+              {locked ? (
+                <div className="mb-5 flex items-center gap-2.5 rounded-lg bg-ink-50 p-3 text-[13px] font-medium text-ink-600">
+                  <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  Access restricted — contact your admin
+                </div>
+              ) : isAuthenticated ? (
                 <CourseProgress course={course} className="mb-5" />
               ) : (
                 <p className="mb-5 text-2xl font-bold text-ink-900">{formatPrice(course.price)}</p>
               )}
 
-              <Button to={primaryAction.to} size="lg" fullWidth>
-                {primaryAction.label}
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
-              </Button>
+              {primaryAction ? (
+                <Button to={primaryAction.to} size="lg" fullWidth>
+                  {primaryAction.label}
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              ) : (
+                <Button size="lg" fullWidth disabled>
+                  <Lock className="h-4 w-4" aria-hidden="true" />
+                  Access Restricted
+                </Button>
+              )}
 
               <button
                 type="button"

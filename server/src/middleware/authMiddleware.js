@@ -41,13 +41,45 @@ async function requireAuth(req, res, next) {
   }
 }
 
+/**
+ * Like requireAuth, but never rejects: attaches req.user when a valid token
+ * is present and simply leaves it undefined otherwise. Lets public pages
+ * (the course catalogue) stay browsable while still returning per-student
+ * access/progress info to whoever happens to be signed in.
+ */
+async function optionalAuth(req, _res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    let token = null;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.query.token) {
+      token = req.query.token;
+    }
+
+    if (!token) return next();
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.id);
+    if (user) {
+      req.user = user;
+      req.student = user;
+    }
+    next();
+  } catch (err) {
+    // An invalid/expired token on a public route just means "browse as a guest".
+    next();
+  }
+}
+
 function requireAdmin(req, res, next) {
   // Must be called AFTER requireAuth
   if (!req.user) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  if (req.user.email !== ADMIN_EMAIL) {
+  if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
@@ -56,5 +88,7 @@ function requireAdmin(req, res, next) {
 
 module.exports = {
   requireAuth,
-  requireAdmin
+  optionalAuth,
+  requireAdmin,
+  ADMIN_EMAIL,
 };

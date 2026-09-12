@@ -1,12 +1,29 @@
 import { useState, useEffect } from 'react';
-import { getCourses, createCourse, addLesson, deleteCourse, deleteLesson, updateCourse, updateLesson, getCourseLessons, toErrorMessage } from '../api/client';
-import { Loader2, Plus, Link as LinkIcon, BookOpen, AlertCircle, CheckCircle2, Trash2, ChevronDown, ChevronUp, Pencil, X, Save } from 'lucide-react';
+import {
+  getCourses, createCourse, addLesson, deleteCourse, deleteLesson, updateCourse, updateLesson, getCourseLessons,
+  getStudents, getStudentAccess, grantAccess, revokeAccess,
+  getCourseResources, addResource, deleteResource, getCourseStats, toErrorMessage,
+} from '../api/client';
+import {
+  Loader2, Plus, Link as LinkIcon, BookOpen, AlertCircle, CheckCircle2, Trash2,
+  ChevronDown, ChevronUp, Pencil, X, Save, Users, Lock, Unlock, FileText, Layers, UserCheck, BarChart3,
+} from 'lucide-react';
+import { usePageMeta } from '../components/layout/DashboardLayout.jsx';
+import StatsCard from '../components/dashboard/StatsCard.jsx';
+import ProgressBar from '../components/common/ProgressBar.jsx';
+import Badge from '../components/common/Badge.jsx';
+import Button from '../components/common/Button.jsx';
+import Input from '../components/common/Input.jsx';
 
 export default function AdminDashboard() {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Overview chart State
+  const [courseStats, setCourseStats] = useState([]);
+  const [loadingStats, setLoadingStats] = useState(true);
 
   // Course Form State
   const [newCourse, setNewCourse] = useState({
@@ -28,10 +45,22 @@ export default function AdminDashboard() {
   });
   const [addingLesson, setAddingLesson] = useState(false);
 
+  // Resource Form State
+  const [newResource, setNewResource] = useState({
+    courseId: '',
+    title: '',
+    description: '',
+    url: '',
+    type: 'pdf',
+  });
+  const [addingResource, setAddingResource] = useState(false);
+
   // List State
   const [expandedCourseId, setExpandedCourseId] = useState(null);
   const [courseLessons, setCourseLessons] = useState({});
   const [loadingLessons, setLoadingLessons] = useState({});
+  const [courseResources, setCourseResources] = useState({});
+  const [loadingResources, setLoadingResources] = useState({});
 
   // Edit State
   const [editingCourseId, setEditingCourseId] = useState(null);
@@ -39,9 +68,95 @@ export default function AdminDashboard() {
   const [editingLessonId, setEditingLessonId] = useState(null);
   const [editingLessonData, setEditingLessonData] = useState(null);
 
+  // Student access State
+  const [students, setStudents] = useState([]);
+  const [loadingStudents, setLoadingStudents] = useState(true);
+  const [expandedStudentId, setExpandedStudentId] = useState(null);
+  const [studentAccess, setStudentAccess] = useState({});
+  const [loadingAccess, setLoadingAccess] = useState({});
+  const [togglingAccess, setTogglingAccess] = useState({});
+
+  usePageMeta('Admin Dashboard', 'Manage courses, students and who has access to what.');
+
   useEffect(() => {
     fetchCourses();
+    fetchStudents();
+    fetchCourseStats();
   }, []);
+
+  const fetchCourseStats = async () => {
+    try {
+      const data = await getCourseStats();
+      setCourseStats(data);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  const fetchStudents = async () => {
+    try {
+      const data = await getStudents();
+      setStudents(data);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setLoadingStudents(false);
+    }
+  };
+
+  const toggleStudentExpansion = async (studentId) => {
+    if (expandedStudentId === studentId) {
+      setExpandedStudentId(null);
+      return;
+    }
+    setExpandedStudentId(studentId);
+
+    if (!studentAccess[studentId]) {
+      setLoadingAccess((prev) => ({ ...prev, [studentId]: true }));
+      try {
+        const access = await getStudentAccess(studentId);
+        setStudentAccess((prev) => ({ ...prev, [studentId]: access }));
+      } catch (err) {
+        setError(toErrorMessage(err));
+      } finally {
+        setLoadingAccess((prev) => ({ ...prev, [studentId]: false }));
+      }
+    }
+  };
+
+  const handleToggleAccess = async (studentId, courseId, currentlyGranted) => {
+    const key = `${studentId}:${courseId}`;
+    setTogglingAccess((prev) => ({ ...prev, [key]: true }));
+    try {
+      if (currentlyGranted) await revokeAccess(studentId, courseId);
+      else await grantAccess(studentId, courseId);
+
+      setStudentAccess((prev) => ({
+        ...prev,
+        [studentId]: prev[studentId].map((c) =>
+          c.courseId === courseId ? { ...c, granted: !currentlyGranted } : c
+        ),
+      }));
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === studentId ? { ...s, accessCount: s.accessCount + (currentlyGranted ? -1 : 1) } : s
+        )
+      );
+      setCourseStats((prev) =>
+        prev.map((s) =>
+          s.courseId === courseId
+            ? { ...s, enrolledCount: s.enrolledCount + (currentlyGranted ? -1 : 1) }
+            : s
+        )
+      );
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setTogglingAccess((prev) => ({ ...prev, [key]: false }));
+    }
+  };
 
   const fetchCourses = async () => {
     try {
@@ -87,33 +202,80 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAddResource = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setAddingResource(true);
+    try {
+      const created = await addResource(newResource);
+      setCourseResources((prev) =>
+        prev[newResource.courseId]
+          ? { ...prev, [newResource.courseId]: [...prev[newResource.courseId], created] }
+          : prev
+      );
+      setSuccess(`Resource "${created.title}" added successfully!`);
+      setNewResource({ ...newResource, title: '', description: '', url: '' });
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setAddingResource(false);
+    }
+  };
+
+  const handleDeleteResource = async (resourceId, resourceTitle, courseId) => {
+    if (!window.confirm(`Are you sure you want to delete the resource "${resourceTitle}"?`)) return;
+
+    try {
+      await deleteResource(resourceId);
+      setCourseResources((prev) => ({
+        ...prev,
+        [courseId]: prev[courseId].filter((r) => r.id !== resourceId),
+      }));
+      setSuccess(`Resource "${resourceTitle}" deleted successfully`);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  };
+
   const toggleCourseExpansion = async (courseId) => {
     if (expandedCourseId === courseId) {
       setExpandedCourseId(null);
       return;
     }
     setExpandedCourseId(courseId);
-    
-    // Fetch lessons if not already loaded
+
     if (!courseLessons[courseId]) {
-      setLoadingLessons(prev => ({ ...prev, [courseId]: true }));
+      setLoadingLessons((prev) => ({ ...prev, [courseId]: true }));
       try {
         const lessons = await getCourseLessons(courseId);
-        setCourseLessons(prev => ({ ...prev, [courseId]: lessons }));
+        setCourseLessons((prev) => ({ ...prev, [courseId]: lessons }));
       } catch (err) {
         setError(toErrorMessage(err));
       } finally {
-        setLoadingLessons(prev => ({ ...prev, [courseId]: false }));
+        setLoadingLessons((prev) => ({ ...prev, [courseId]: false }));
+      }
+    }
+
+    if (!courseResources[courseId]) {
+      setLoadingResources((prev) => ({ ...prev, [courseId]: true }));
+      try {
+        const resources = await getCourseResources(courseId);
+        setCourseResources((prev) => ({ ...prev, [courseId]: resources }));
+      } catch (err) {
+        setError(toErrorMessage(err));
+      } finally {
+        setLoadingResources((prev) => ({ ...prev, [courseId]: false }));
       }
     }
   };
 
   const handleDeleteCourse = async (courseId, courseTitle) => {
     if (!window.confirm(`Are you sure you want to delete the course "${courseTitle}" and ALL its lessons?`)) return;
-    
+
     try {
       await deleteCourse(courseId);
-      setCourses(courses.filter(c => c._id !== courseId));
+      setCourses(courses.filter((c) => c._id !== courseId));
       setSuccess(`Course "${courseTitle}" deleted successfully`);
     } catch (err) {
       setError(toErrorMessage(err));
@@ -122,13 +284,12 @@ export default function AdminDashboard() {
 
   const handleDeleteLesson = async (lessonId, lessonTitle, courseId) => {
     if (!window.confirm(`Are you sure you want to delete the lesson "${lessonTitle}"?`)) return;
-    
+
     try {
       await deleteLesson(lessonId);
-      // Update local state
-      setCourseLessons(prev => ({
+      setCourseLessons((prev) => ({
         ...prev,
-        [courseId]: prev[courseId].filter(l => l._id !== lessonId)
+        [courseId]: prev[courseId].filter((l) => l._id !== lessonId),
       }));
       setSuccess(`Lesson "${lessonTitle}" deleted successfully`);
     } catch (err) {
@@ -146,7 +307,7 @@ export default function AdminDashboard() {
     e.stopPropagation();
     try {
       const updated = await updateCourse(courseId, editingCourseData);
-      setCourses(courses.map(c => c._id === courseId ? { ...c, ...updated } : c));
+      setCourses(courses.map((c) => (c._id === courseId ? { ...c, ...updated } : c)));
       setEditingCourseId(null);
       setSuccess('Course updated successfully');
     } catch (err) {
@@ -156,19 +317,19 @@ export default function AdminDashboard() {
 
   const startEditLesson = (lesson) => {
     setEditingLessonId(lesson._id);
-    setEditingLessonData({ 
-      title: lesson.title, 
-      description: lesson.description || '', 
-      date: lesson.date ? lesson.date.split('T')[0] : '' 
+    setEditingLessonData({
+      title: lesson.title,
+      description: lesson.description || '',
+      date: lesson.date ? lesson.date.split('T')[0] : '',
     });
   };
 
   const handleSaveLessonEdit = async (courseId, lessonId) => {
     try {
       const updated = await updateLesson(lessonId, editingLessonData);
-      setCourseLessons(prev => ({
+      setCourseLessons((prev) => ({
         ...prev,
-        [courseId]: prev[courseId].map(l => l._id === lessonId ? { ...l, ...updated } : l)
+        [courseId]: prev[courseId].map((l) => (l._id === lessonId ? { ...l, ...updated } : l)),
       }));
       setEditingLessonId(null);
       setSuccess('Lesson updated successfully');
@@ -185,362 +346,587 @@ export default function AdminDashboard() {
     );
   }
 
+  const totalLessons = courses.reduce((sum, c) => sum + (c.lessons?.length || 0), 0);
+  const totalGrants = students.reduce((sum, s) => sum + s.accessCount, 0);
+  const maxEnrolled = Math.max(1, ...courseStats.map((s) => s.enrolledCount));
+  const enrolledByCourse = new Map(courseStats.map((s) => [s.courseId, s.enrolledCount]));
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 relative">
-      {/* Decorative background elements */}
-      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-        <div className="absolute -top-[20%] -left-[10%] h-[50%] w-[50%] rounded-full bg-primary-400/10 blur-[100px]"></div>
-        <div className="absolute top-[40%] -right-[10%] h-[50%] w-[50%] rounded-full bg-purple-400/10 blur-[120px]"></div>
-      </div>
-
-      <header className="mb-10 text-center sm:text-left">
-        <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-5xl">
-          Admin <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-500 to-purple-600">Dashboard</span>
-        </h1>
-        <p className="mt-4 text-lg text-slate-600 dark:text-slate-400">
-          Manage your curriculum and seamlessly import videos from Google Drive.
-        </p>
-      </header>
-
+    <div className="space-y-6">
       {error && (
-        <div className="mb-8 flex items-center gap-3 rounded-2xl bg-red-50/80 p-4 text-red-800 border border-red-200/50 backdrop-blur-sm dark:bg-red-500/10 dark:text-red-200 dark:border-red-500/20 shadow-sm animate-in fade-in slide-in-from-top-4">
-          <AlertCircle className="h-5 w-5 shrink-0" />
-          <p className="text-sm font-medium">{error}</p>
+        <div className="flex items-center gap-2.5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <p>{error}</p>
         </div>
       )}
 
       {success && (
-        <div className="mb-8 flex items-center gap-3 rounded-2xl bg-emerald-50/80 p-4 text-emerald-800 border border-emerald-200/50 backdrop-blur-sm dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/20 shadow-sm animate-in fade-in slide-in-from-top-4">
-          <CheckCircle2 className="h-5 w-5 shrink-0" />
-          <p className="text-sm font-medium">{success}</p>
+        <div className="flex items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <p>{success}</p>
         </div>
       )}
 
-      <div className="grid gap-8 lg:grid-cols-2">
-        {/* Course Creation Card */}
-        <section className="relative overflow-hidden rounded-3xl border border-white/20 bg-white/60 p-8 shadow-xl backdrop-blur-xl dark:border-slate-800/50 dark:bg-slate-900/60">
-          <div className="absolute top-0 right-0 p-6 opacity-10">
-            <BookOpen className="h-24 w-24" />
-          </div>
-          
-          <h2 className="mb-6 flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-            <Plus className="h-6 w-6 text-primary-500" />
-            Create Course
-          </h2>
-          
-          <form onSubmit={handleCreateCourse} className="relative z-10 flex flex-col gap-5">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Course Title</label>
-              <input
-                required
-                type="text"
-                className="w-full rounded-xl border-slate-300 bg-white/50 px-4 py-2.5 text-sm transition-all focus:border-primary-500 focus:bg-white focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:bg-slate-800"
-                placeholder="e.g. Advanced Python Programming"
-                value={newCourse.title}
-                onChange={(e) => {
-                  const title = e.target.value;
-                  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
-                  setNewCourse({ ...newCourse, title, slug });
-                }}
-              />
-            </div>
-            
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">URL Slug</label>
-              <input
-                required
-                type="text"
-                className="w-full rounded-xl border-slate-300 bg-white/50 px-4 py-2.5 text-sm transition-all focus:border-primary-500 focus:bg-white focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:bg-slate-800"
-                value={newCourse.slug}
-                onChange={(e) => setNewCourse({ ...newCourse, slug: e.target.value })}
-              />
-            </div>
+      {/* --- Overview stats --------------------------------------------- */}
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatsCard icon={BookOpen} label="Total courses" value={courses.length} tone="primary" />
+        <StatsCard icon={Users} label="Total students" value={students.length} tone="success" />
+        <StatsCard icon={Layers} label="Total lessons" value={totalLessons} tone="warning" />
+        <StatsCard icon={UserCheck} label="Access grants" value={totalGrants} tone="neutral" />
+      </section>
 
+      {/* --- Enrollment chart --------------------------------------------- */}
+      <section className="card p-6">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-primary-600" aria-hidden="true" />
+          <h2 className="text-base font-semibold text-ink-900">Enrollment by course</h2>
+        </div>
+        <p className="mt-1 text-[13px] text-ink-500">
+          How many students currently have access to each course.
+        </p>
+
+        {loadingStats ? (
+          <div className="mt-6 flex items-center gap-2 text-sm text-ink-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+          </div>
+        ) : courseStats.length === 0 ? (
+          <p className="mt-6 text-sm text-ink-500">No courses yet.</p>
+        ) : (
+          <div className="mt-6 space-y-4">
+            {courseStats.map((stat) => (
+              <div key={stat.courseId}>
+                <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate font-medium text-ink-700">{stat.title}</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-ink-900">
+                    {stat.enrolledCount} enrolled
+                  </span>
+                </div>
+                <ProgressBar
+                  value={(stat.enrolledCount / maxEnrolled) * 100}
+                  label={`${stat.title} enrollment`}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* --- Create course / add lesson ----------------------------------- */}
+      <section className="grid gap-6 lg:grid-cols-2">
+        <div className="card p-6">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
+            <Plus className="h-4 w-4 text-primary-600" aria-hidden="true" />
+            Create course
+          </h2>
+
+          <form onSubmit={handleCreateCourse} className="mt-5 flex flex-col gap-4">
+            <Input
+              label="Course title"
+              required
+              placeholder="e.g. Advanced Python Programming"
+              value={newCourse.title}
+              onChange={(e) => {
+                const title = e.target.value;
+                const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+                setNewCourse({ ...newCourse, title, slug });
+              }}
+            />
+            <Input
+              label="URL slug"
+              required
+              value={newCourse.slug}
+              onChange={(e) => setNewCourse({ ...newCourse, slug: e.target.value })}
+            />
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
+              <label className="field-label">Description</label>
               <textarea
-                className="w-full rounded-xl border-slate-300 bg-white/50 px-4 py-2.5 text-sm transition-all focus:border-primary-500 focus:bg-white focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:bg-slate-800 min-h-[100px]"
+                className="field-input min-h-[100px] resize-y"
                 value={newCourse.description}
                 onChange={(e) => setNewCourse({ ...newCourse, description: e.target.value })}
-              ></textarea>
+              />
             </div>
 
-            <button
-              type="submit"
-              disabled={creatingCourse}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-500/30 transition-all hover:opacity-90 hover:shadow-primary-500/40 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:focus:ring-offset-slate-900"
-            >
-              {creatingCourse ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Create Course'}
-            </button>
+            <Button type="submit" loading={creatingCourse} disabled={creatingCourse} fullWidth>
+              Create course
+            </Button>
           </form>
-        </section>
+        </div>
 
-        {/* Lesson Creation Card */}
-        <section className="relative overflow-hidden rounded-3xl border border-white/20 bg-white/60 p-8 shadow-xl backdrop-blur-xl dark:border-slate-800/50 dark:bg-slate-900/60">
-           <div className="absolute top-0 right-0 p-6 opacity-10">
-            <LinkIcon className="h-24 w-24" />
-          </div>
-
-          <h2 className="mb-6 flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-            <LinkIcon className="h-6 w-6 text-purple-500" />
-            Add Drive Lesson
+        <div className="card p-6">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
+            <LinkIcon className="h-4 w-4 text-primary-600" aria-hidden="true" />
+            Add Drive lesson
           </h2>
 
-          <form onSubmit={handleAddLesson} className="relative z-10 flex flex-col gap-5">
+          <form onSubmit={handleAddLesson} className="mt-5 flex flex-col gap-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Select Course</label>
+              <label className="field-label">Select course</label>
               <select
                 required
-                className="w-full rounded-xl border-slate-300 bg-white/50 px-4 py-2.5 text-sm transition-all focus:border-purple-500 focus:bg-white focus:ring-purple-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:bg-slate-800"
+                className="field-input"
                 value={newLesson.courseId}
                 onChange={(e) => setNewLesson({ ...newLesson, courseId: e.target.value })}
               >
                 <option value="" disabled>Choose a course...</option>
-                {courses.map(course => (
+                {courses.map((course) => (
                   <option key={course._id} value={course._id}>{course.title}</option>
                 ))}
               </select>
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Lesson Title</label>
-              <input
-                required
-                type="text"
-                placeholder="e.g. 1. Introduction to Variables"
-                className="w-full rounded-xl border-slate-300 bg-white/50 px-4 py-2.5 text-sm transition-all focus:border-purple-500 focus:bg-white focus:ring-purple-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:bg-slate-800"
-                value={newLesson.title}
-                onChange={(e) => setNewLesson({ ...newLesson, title: e.target.value })}
-              />
-            </div>
+            <Input
+              label="Lesson title"
+              required
+              placeholder="e.g. 1. Introduction to Variables"
+              value={newLesson.title}
+              onChange={(e) => setNewLesson({ ...newLesson, title: e.target.value })}
+            />
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
+              <label className="field-label">Description</label>
               <textarea
+                className="field-input min-h-[80px] resize-y"
                 placeholder="Brief summary of the lesson..."
-                className="w-full rounded-xl border-slate-300 bg-white/50 px-4 py-2.5 text-sm transition-all focus:border-purple-500 focus:bg-white focus:ring-purple-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:bg-slate-800 min-h-[80px]"
                 value={newLesson.description}
                 onChange={(e) => setNewLesson({ ...newLesson, description: e.target.value })}
               />
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Date</label>
-              <input
-                required
-                type="date"
-                className="w-full rounded-xl border-slate-300 bg-white/50 px-4 py-2.5 text-sm transition-all focus:border-purple-500 focus:bg-white focus:ring-purple-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:bg-slate-800"
-                value={newLesson.date}
-                onChange={(e) => setNewLesson({ ...newLesson, date: e.target.value })}
-              />
-            </div>
+            <Input
+              label="Date"
+              type="date"
+              required
+              value={newLesson.date}
+              onChange={(e) => setNewLesson({ ...newLesson, date: e.target.value })}
+            />
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Google Drive Video Link</label>
-              <input
-                required
-                type="url"
-                placeholder="https://drive.google.com/file/d/..."
-                className="w-full rounded-xl border-slate-300 bg-white/50 px-4 py-2.5 text-sm transition-all focus:border-purple-500 focus:bg-white focus:ring-purple-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:bg-slate-800 font-mono text-xs"
-                value={newLesson.driveLink}
-                onChange={(e) => setNewLesson({ ...newLesson, driveLink: e.target.value })}
-              />
-              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                The file must be shared with your service account. The server will extract the ID and securely proxy the stream.
-              </p>
-            </div>
+            <Input
+              label="Google Drive video link"
+              type="url"
+              required
+              placeholder="https://drive.google.com/file/d/..."
+              hint="The file must be shared with your service account. The server extracts the ID and securely proxies the stream."
+              value={newLesson.driveLink}
+              onChange={(e) => setNewLesson({ ...newLesson, driveLink: e.target.value })}
+            />
 
-            <button
-              type="submit"
-              disabled={addingLesson || !newLesson.courseId}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-purple-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/30 transition-all hover:opacity-90 hover:shadow-purple-500/40 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:focus:ring-offset-slate-900"
-            >
-              {addingLesson ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Import & Add Lesson'}
-            </button>
+            <Button type="submit" loading={addingLesson} disabled={addingLesson || !newLesson.courseId} fullWidth>
+              Import &amp; add lesson
+            </Button>
           </form>
-        </section>
-      </div>
+        </div>
+      </section>
 
-      {/* Course Management List */}
-      <section className="mt-12">
-        <h2 className="mb-6 text-2xl font-bold text-slate-900 dark:text-white">
-          Manage Courses & Lessons
+      {/* --- Add study material -------------------------------------------- */}
+      <section className="card p-6">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
+          <FileText className="h-4 w-4 text-primary-600" aria-hidden="true" />
+          Add study material
         </h2>
-        
-        {courses.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            No courses available yet. Create one above!
+
+        <form onSubmit={handleAddResource} className="mt-5 grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="field-label">Select course</label>
+            <select
+              required
+              className="field-input"
+              value={newResource.courseId}
+              onChange={(e) => setNewResource({ ...newResource, courseId: e.target.value })}
+            >
+              <option value="" disabled>Choose a course...</option>
+              {courses.map((course) => (
+                <option key={course._id} value={course._id}>{course.title}</option>
+              ))}
+            </select>
           </div>
+
+          <div>
+            <label className="field-label">Type</label>
+            <select
+              className="field-input"
+              value={newResource.type}
+              onChange={(e) => setNewResource({ ...newResource, type: e.target.value })}
+            >
+              <option value="pdf">PDF</option>
+              <option value="doc">Document</option>
+              <option value="slides">Slides</option>
+              <option value="link">Link</option>
+            </select>
+          </div>
+
+          <Input
+            label="Title"
+            required
+            placeholder="e.g. Week 1 Handout"
+            value={newResource.title}
+            onChange={(e) => setNewResource({ ...newResource, title: e.target.value })}
+          />
+
+          <Input
+            label="Link (PDF / Drive / doc URL)"
+            type="url"
+            required
+            placeholder="https://drive.google.com/file/d/..."
+            value={newResource.url}
+            onChange={(e) => setNewResource({ ...newResource, url: e.target.value })}
+          />
+
+          <div className="md:col-span-2">
+            <label className="field-label">Description (optional)</label>
+            <textarea
+              className="field-input min-h-[80px] resize-y"
+              placeholder="What this resource covers..."
+              value={newResource.description}
+              onChange={(e) => setNewResource({ ...newResource, description: e.target.value })}
+            />
+          </div>
+
+          <Button
+            type="submit"
+            loading={addingResource}
+            disabled={addingResource || !newResource.courseId}
+            className="md:col-span-2"
+            fullWidth
+          >
+            Add resource
+          </Button>
+        </form>
+      </section>
+
+      {/* --- Manage courses & lessons --------------------------------------- */}
+      <section className="card overflow-hidden">
+        <div className="border-b border-ink-100 p-6">
+          <h2 className="text-base font-semibold text-ink-900">Manage courses &amp; lessons</h2>
+        </div>
+
+        {courses.length === 0 ? (
+          <p className="p-6 text-sm text-ink-500">No courses available yet. Create one above!</p>
         ) : (
-          <div className="flex flex-col gap-4">
-            {courses.map(course => (
-              <div key={course._id} className="overflow-hidden rounded-2xl border border-white/20 bg-white/60 shadow-md backdrop-blur-xl transition-all dark:border-slate-800/50 dark:bg-slate-900/60">
-                <div 
-                  className="flex cursor-pointer flex-col md:flex-row items-start md:items-center justify-between p-5 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 gap-4"
+          <div className="divide-y divide-ink-100">
+            <div className="hidden grid-cols-[1fr_6rem_6rem_7rem] gap-4 px-6 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-400 sm:grid">
+              <span>Course</span>
+              <span>Lessons</span>
+              <span>Enrolled</span>
+              <span className="text-right">Actions</span>
+            </div>
+
+            {courses.map((course) => (
+              <div key={course._id}>
+                <div
+                  className="flex cursor-pointer flex-col gap-3 px-6 py-4 transition hover:bg-surface-muted sm:grid sm:grid-cols-[1fr_6rem_6rem_7rem] sm:items-center sm:gap-4"
                   onClick={() => !editingCourseId && toggleCourseExpansion(course._id)}
                 >
-                  <div className="flex items-center gap-4 w-full md:w-auto flex-1">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
-                      <BookOpen className="h-5 w-5" />
-                    </div>
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600">
+                      <BookOpen className="h-4 w-4" aria-hidden="true" />
+                    </span>
                     {editingCourseId === course._id ? (
-                      <div className="flex w-full flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex w-full flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="text"
-                          className="w-full rounded-md border-slate-300 bg-white px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                          className="w-full rounded-md border border-ink-200 px-2.5 py-1 text-sm focus:border-primary-500 focus:outline-none"
                           value={editingCourseData.title}
                           onChange={(e) => setEditingCourseData({ ...editingCourseData, title: e.target.value })}
                           placeholder="Title"
                         />
                         <input
                           type="text"
-                          className="w-full rounded-md border-slate-300 bg-white px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                          className="w-full rounded-md border border-ink-200 px-2.5 py-1 text-sm focus:border-primary-500 focus:outline-none"
                           value={editingCourseData.slug}
                           onChange={(e) => setEditingCourseData({ ...editingCourseData, slug: e.target.value })}
                           placeholder="Slug"
                         />
                       </div>
                     ) : (
-                      <div>
-                        <h3 className="font-semibold text-slate-900 dark:text-white">{course.title}</h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{course.lessons?.length || 0} lessons</p>
-                      </div>
+                      <p className="truncate text-sm font-medium text-ink-900">{course.title}</p>
                     )}
                   </div>
-                  
-                  <div className="flex items-center gap-2 shrink-0">
+
+                  <span className="text-sm text-ink-600 sm:pl-0">
+                    <span className="text-ink-400 sm:hidden">Lessons: </span>
+                    {course.lessons?.length || 0}
+                  </span>
+                  <span className="text-sm text-ink-600">
+                    <span className="text-ink-400 sm:hidden">Enrolled: </span>
+                    {enrolledByCourse.get(String(course._id)) || 0}
+                  </span>
+
+                  <div className="flex items-center gap-1 sm:justify-end">
                     {editingCourseId === course._id ? (
                       <>
                         <button
                           onClick={(e) => handleSaveCourseEdit(e, course._id)}
-                          className="rounded-lg p-2 text-emerald-600 transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-500/10 dark:text-emerald-400"
+                          className="rounded-lg p-2 text-emerald-600 transition hover:bg-emerald-50"
                           title="Save"
                         >
-                          <Save className="h-5 w-5" />
+                          <Save className="h-4 w-4" />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setEditingCourseId(null); }}
-                          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
+                          className="rounded-lg p-2 text-ink-400 transition hover:bg-ink-100"
                           title="Cancel"
                         >
-                          <X className="h-5 w-5" />
+                          <X className="h-4 w-4" />
                         </button>
                       </>
                     ) : (
                       <>
                         <button
                           onClick={(e) => startEditCourse(e, course)}
-                          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-500/10 dark:hover:text-primary-400"
-                          title="Edit Course"
+                          className="rounded-lg p-2 text-ink-400 transition hover:bg-primary-50 hover:text-primary-600"
+                          title="Edit course"
                         >
-                          <Pencil className="h-5 w-5" />
+                          <Pencil className="h-4 w-4" />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDeleteCourse(course._id, course.title); }}
-                          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                          title="Delete Course"
+                          className="rounded-lg p-2 text-ink-400 transition hover:bg-red-50 hover:text-red-600"
+                          title="Delete course"
                         >
-                          <Trash2 className="h-5 w-5" />
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       </>
                     )}
-                    <div className="ml-1 text-slate-400">
-                      {expandedCourseId === course._id ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                    </div>
+                    <span className="text-ink-400">
+                      {expandedCourseId === course._id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </span>
                   </div>
                 </div>
 
-                {/* Lessons Dropdown */}
                 {expandedCourseId === course._id && (
-                  <div className="border-t border-slate-200 bg-slate-50/50 p-5 dark:border-slate-800 dark:bg-slate-900/40">
-                    {loadingLessons[course._id] ? (
-                      <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Loading lessons...
-                      </div>
-                    ) : courseLessons[course._id]?.length === 0 ? (
-                      <div className="text-sm text-slate-500 dark:text-slate-400">No lessons added to this course yet.</div>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {courseLessons[course._id]?.map(lesson => (
-                          <div key={lesson._id} className="flex flex-col md:flex-row md:items-center justify-between rounded-xl bg-white p-3 shadow-sm dark:bg-slate-800 gap-3">
-                            <div className="flex items-center gap-3 flex-1">
-                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-                                {lesson.order}
-                              </span>
-                              
-                              {editingLessonId === lesson._id ? (
-                                <div className="flex w-full flex-col gap-2">
-                                  <div className="flex flex-col md:flex-row gap-2">
-                                    <input
-                                      type="text"
-                                      className="w-full rounded-md border-slate-300 bg-slate-50 px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                                      value={editingLessonData.title}
-                                      onChange={(e) => setEditingLessonData({ ...editingLessonData, title: e.target.value })}
-                                      placeholder="Title"
-                                    />
-                                    <input
-                                      type="date"
-                                      className="w-full md:w-32 rounded-md border-slate-300 bg-slate-50 px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                                      value={editingLessonData.date}
-                                      onChange={(e) => setEditingLessonData({ ...editingLessonData, date: e.target.value })}
+                  <div className="space-y-5 border-t border-ink-100 bg-surface-muted px-6 py-5">
+                    <div>
+                      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">Lessons</h4>
+                      {loadingLessons[course._id] ? (
+                        <div className="flex items-center gap-2 text-sm text-ink-500">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Loading lessons...
+                        </div>
+                      ) : courseLessons[course._id]?.length === 0 ? (
+                        <p className="text-sm text-ink-500">No lessons added to this course yet.</p>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {courseLessons[course._id]?.map((lesson) => (
+                            <div key={lesson._id} className="flex flex-col gap-3 rounded-lg border border-ink-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex flex-1 items-center gap-3">
+                                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-50 text-xs font-medium text-primary-700">
+                                  {lesson.order}
+                                </span>
+
+                                {editingLessonId === lesson._id ? (
+                                  <div className="flex w-full flex-col gap-2">
+                                    <div className="flex flex-col gap-2 sm:flex-row">
+                                      <input
+                                        type="text"
+                                        className="w-full rounded-md border border-ink-200 px-2.5 py-1 text-sm focus:border-primary-500 focus:outline-none"
+                                        value={editingLessonData.title}
+                                        onChange={(e) => setEditingLessonData({ ...editingLessonData, title: e.target.value })}
+                                        placeholder="Title"
+                                      />
+                                      <input
+                                        type="date"
+                                        className="w-full rounded-md border border-ink-200 px-2.5 py-1 text-sm focus:border-primary-500 focus:outline-none sm:w-36"
+                                        value={editingLessonData.date}
+                                        onChange={(e) => setEditingLessonData({ ...editingLessonData, date: e.target.value })}
+                                      />
+                                    </div>
+                                    <textarea
+                                      className="min-h-[60px] w-full rounded-md border border-ink-200 px-2.5 py-1 text-sm focus:border-primary-500 focus:outline-none"
+                                      value={editingLessonData.description}
+                                      onChange={(e) => setEditingLessonData({ ...editingLessonData, description: e.target.value })}
+                                      placeholder="Lesson description..."
                                     />
                                   </div>
-                                  <textarea
-                                    className="w-full rounded-md border-slate-300 bg-slate-50 px-3 py-1 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white min-h-[60px]"
-                                    value={editingLessonData.description}
-                                    onChange={(e) => setEditingLessonData({ ...editingLessonData, description: e.target.value })}
-                                    placeholder="Lesson description..."
-                                  />
-                                </div>
-                              ) : (
-                                <div className="flex flex-col">
-                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{lesson.title}</span>
-                                  {lesson.description && (
-                                    <span className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{lesson.description}</span>
-                                  )}
-                                </div>
-                              )}
+                                ) : (
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-ink-800">{lesson.title}</p>
+                                    {lesson.description && (
+                                      <p className="mt-0.5 truncate text-xs text-ink-500">{lesson.description}</p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1 self-end sm:self-auto">
+                                {editingLessonId === lesson._id ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleSaveLessonEdit(course._id, lesson._id)}
+                                      className="rounded-lg p-1.5 text-emerald-600 transition hover:bg-emerald-50"
+                                      title="Save"
+                                    >
+                                      <Save className="h-4 w-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingLessonId(null)}
+                                      className="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-100"
+                                      title="Cancel"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => startEditLesson(lesson)}
+                                      className="rounded-lg p-1.5 text-ink-400 transition hover:bg-primary-50 hover:text-primary-600"
+                                      title="Edit lesson"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteLesson(lesson._id, lesson.title, course._id)}
+                                      className="rounded-lg p-1.5 text-ink-400 transition hover:bg-red-50 hover:text-red-600"
+                                      title="Delete lesson"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                            
-                            <div className="flex items-center gap-2 ml-9 md:ml-0 shrink-0">
-                              {editingLessonId === lesson._id ? (
-                                <>
-                                  <button
-                                    onClick={() => handleSaveLessonEdit(course._id, lesson._id)}
-                                    className="rounded-lg p-1.5 text-emerald-600 transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-500/10 dark:text-emerald-400"
-                                    title="Save"
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">Study materials</h4>
+                      {loadingResources[course._id] ? (
+                        <div className="flex items-center gap-2 text-sm text-ink-500">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Loading resources...
+                        </div>
+                      ) : courseResources[course._id]?.length === 0 ? (
+                        <p className="text-sm text-ink-500">No study materials added to this course yet.</p>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {courseResources[course._id]?.map((resource) => (
+                            <div key={resource.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 bg-white p-3">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                                  <FileText className="h-4 w-4" />
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-ink-800">{resource.title}</p>
+                                  <a
+                                    href={resource.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block truncate text-xs text-primary-600 hover:underline"
                                   >
-                                    <Save className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => setEditingLessonId(null)}
-                                    className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-                                    title="Cancel"
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => startEditLesson(lesson)}
-                                    className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-500/10 dark:hover:text-purple-400"
-                                    title="Edit Lesson"
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteLesson(lesson._id, lesson.title, course._id)}
-                                    className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                                    title="Delete Lesson"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </>
-                              )}
+                                    {resource.url}
+                                  </a>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteResource(resource.id, resource.title, course._id)}
+                                className="shrink-0 rounded-lg p-1.5 text-ink-400 transition hover:bg-red-50 hover:text-red-600"
+                                title="Delete resource"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* --- Students & course access ---------------------------------------- */}
+      <section className="card overflow-hidden">
+        <div className="border-b border-ink-100 p-6">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
+            <Users className="h-4 w-4 text-primary-600" aria-hidden="true" />
+            Students &amp; course access
+          </h2>
+        </div>
+
+        {loadingStudents ? (
+          <div className="flex items-center gap-2 p-6 text-sm text-ink-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading students...
+          </div>
+        ) : students.length === 0 ? (
+          <p className="p-6 text-sm text-ink-500">No students have registered yet.</p>
+        ) : (
+          <div className="divide-y divide-ink-100">
+            <div className="hidden grid-cols-[1fr_9rem_9rem] gap-4 px-6 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-400 sm:grid">
+              <span>Student</span>
+              <span>Courses enrolled</span>
+              <span className="text-right">Manage access</span>
+            </div>
+
+            {students.map((student) => (
+              <div key={student.id}>
+                <div className="flex flex-col gap-3 px-6 py-4 sm:grid sm:grid-cols-[1fr_9rem_9rem] sm:items-center sm:gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600">
+                      <Users className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink-900">{student.name}</p>
+                      <p className="truncate text-xs text-ink-500">{student.email}</p>
+                    </div>
+                  </div>
+
+                  <Badge tone={student.accessCount > 0 ? 'success' : 'neutral'} className="self-start sm:self-auto">
+                    {student.accessCount} enrolled
+                  </Badge>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleStudentExpansion(student.id)}
+                    className="inline-flex items-center gap-1.5 self-start rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-semibold text-ink-700 transition hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 sm:justify-self-end"
+                  >
+                    Manage access
+                    {expandedStudentId === student.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+
+                {expandedStudentId === student.id && (
+                  <div className="border-t border-ink-100 bg-surface-muted p-5">
+                    {loadingAccess[student.id] ? (
+                      <div className="flex items-center gap-2 text-sm text-ink-500">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading access...
+                      </div>
+                    ) : (studentAccess[student.id]?.length || 0) === 0 ? (
+                      <p className="text-sm text-ink-500">No courses exist yet.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {studentAccess[student.id].map((entry) => {
+                          const key = `${student.id}:${entry.courseId}`;
+                          return (
+                            <div
+                              key={entry.courseId}
+                              className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 bg-white p-3"
+                            >
+                              <span className="truncate text-sm font-medium text-ink-800">{entry.title}</span>
+                              <button
+                                type="button"
+                                disabled={togglingAccess[key]}
+                                onClick={() => handleToggleAccess(student.id, entry.courseId, entry.granted)}
+                                className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                  entry.granted
+                                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                    : 'bg-primary-600 text-white hover:bg-primary-700'
+                                }`}
+                              >
+                                {togglingAccess[key] ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : entry.granted ? (
+                                  <Unlock className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Lock className="h-3.5 w-3.5" />
+                                )}
+                                {entry.granted ? 'Revoke access' : 'Allow access'}
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

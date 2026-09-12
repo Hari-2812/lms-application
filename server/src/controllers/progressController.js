@@ -1,7 +1,41 @@
 const Lesson = require('../models/Lesson');
 const Progress = require('../models/Progress');
+const Course = require('../models/Course');
+const { notifyUser } = require('../services/notificationService');
 
 const COMPLETE_AT_PERCENT = 90; // "watched enough" threshold for the demo
+const MILESTONES = [50, 100];
+
+/**
+ * After a lesson is newly marked complete, checks whether the student's
+ * overall course completion just crossed a milestone (50%/100%) and, if so,
+ * notifies them. Completing one lesson can only move the percentage up, so
+ * comparing the pre- and post-completion counts is enough to detect a cross.
+ */
+async function checkCourseMilestone(studentId, courseId) {
+  const [lessonCount, completedCount, course] = await Promise.all([
+    Lesson.countDocuments({ courseId }),
+    Progress.countDocuments({ studentId, courseId, completed: true }),
+    Course.findById(courseId).select('title'),
+  ]);
+  if (!lessonCount || !course) return;
+
+  const newPercent = Math.round((completedCount / lessonCount) * 100);
+  const prevPercent = Math.round(((completedCount - 1) / lessonCount) * 100);
+
+  const crossed = MILESTONES.find((m) => prevPercent < m && newPercent >= m);
+  if (!crossed) return;
+
+  await notifyUser(studentId, {
+    type: 'progress_milestone',
+    title: crossed >= 100 ? 'Course completed!' : `${crossed}% complete`,
+    message:
+      crossed >= 100
+        ? `You finished "${course.title}" — congratulations!`
+        : `You're ${crossed}% of the way through "${course.title}"`,
+    courseId,
+  });
+}
 
 /** POST /api/progress  body: { lessonId, position, duration } */
 async function saveProgress(req, res, next) {
@@ -15,7 +49,8 @@ async function saveProgress(req, res, next) {
     const percent = duration > 0 ? Math.min(100, Math.round((position / duration) * 100)) : 0;
 
     const existing = await Progress.findOne({ studentId: req.student.id, lessonId });
-    const completed = (existing?.completed ?? false) || percent >= COMPLETE_AT_PERCENT;
+    const wasCompleted = existing?.completed ?? false;
+    const completed = wasCompleted || percent >= COMPLETE_AT_PERCENT;
 
     const progress = await Progress.findOneAndUpdate(
       { studentId: req.student.id, lessonId },
@@ -30,6 +65,10 @@ async function saveProgress(req, res, next) {
       },
       { new: true, upsert: true }
     );
+
+    if (completed && !wasCompleted) {
+      await checkCourseMilestone(req.student.id, lesson.courseId);
+    }
 
     res.json({
       lessonId: progress.lessonId,

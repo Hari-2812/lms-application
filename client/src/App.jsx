@@ -3,10 +3,11 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { Loader2 } from 'lucide-react';
 
 import PublicLayout from './components/layout/PublicLayout.jsx';
-import DashboardLayout from './components/layout/DashboardLayout.jsx';
+import DashboardLayout, { useIsDashboard } from './components/layout/DashboardLayout.jsx';
 import LearnLayout from './components/layout/LearnLayout.jsx';
 import ProtectedRoute from './components/layout/ProtectedRoute.jsx';
 import AdminRoute from './components/layout/AdminRoute.jsx';
+import { useAuth } from './context/AuthContext.jsx';
 
 import Home from './pages/Home.jsx';
 import Courses from './pages/Courses.jsx';
@@ -18,6 +19,7 @@ import NotFound from './pages/NotFound.jsx';
 // The authenticated bundle is only fetched once a student signs in.
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
 const MyCourses = lazy(() => import('./pages/MyCourses.jsx'));
+const Resources = lazy(() => import('./pages/Resources.jsx'));
 const CourseLearning = lazy(() => import('./pages/CourseLearning.jsx'));
 const ProgressPage = lazy(() => import('./pages/ProgressPage.jsx'));
 const Certificates = lazy(() => import('./pages/Certificates.jsx'));
@@ -39,6 +41,25 @@ function RouteFallback() {
 /** Public course pages need the page padding the dashboard shell provides. */
 function PublicPage({ children }) {
   return <div className="container py-8 lg:py-10">{children}</div>;
+}
+
+/**
+ * The course catalogue and course details are meant to be browsable by
+ * anyone, but a signed-in student should never be bounced out of their
+ * dashboard shell into the marketing site just to look at a course — so this
+ * picks whichever shell matches who's looking, and the pages below use
+ * `useIsDashboard()` to avoid double-applying page padding.
+ */
+function CatalogueShell() {
+  const { isAuthenticated, initialising } = useAuth();
+  if (initialising) return <RouteFallback />;
+  return isAuthenticated ? <DashboardLayout /> : <PublicLayout />;
+}
+
+function CourseDetailsPage() {
+  const inDashboard = useIsDashboard();
+  const content = <CourseDetails />;
+  return inDashboard ? content : <PublicPage>{content}</PublicPage>;
 }
 
 /** Keeps the previous /course/:courseId URLs working. */
@@ -74,16 +95,13 @@ export default function App() {
           {/* ---------- Public ---------- */}
           <Route element={<PublicLayout />}>
             <Route path="/" element={<Home />} />
-            <Route path="/courses" element={<Courses />} />
-            <Route
-              path="/courses/:courseId"
-              element={
-                <PublicPage>
-                  <CourseDetails />
-                </PublicPage>
-              }
-            />
             <Route path="*" element={<NotFound />} />
+          </Route>
+
+          {/* ---------- Course catalogue: shell follows sign-in state ---------- */}
+          <Route element={<CatalogueShell />}>
+            <Route path="/courses" element={<Courses />} />
+            <Route path="/courses/:courseId" element={<CourseDetailsPage />} />
           </Route>
 
           {/* ---------- Auth ---------- */}
@@ -96,6 +114,7 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/my-courses" element={<MyCourses />} />
               <Route path="/my-courses/:courseId" element={<CourseDetails />} />
+              <Route path="/resources" element={<Resources />} />
               <Route path="/progress" element={<ProgressPage />} />
               <Route path="/certificates" element={<Certificates />} />
               <Route path="/achievements" element={<Achievements />} />

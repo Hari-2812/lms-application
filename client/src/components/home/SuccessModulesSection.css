@@ -1,0 +1,221 @@
+/* Styling for Success Strategy Module Flow Diagram */
+
+.aa-success {
+  padding: 80px 0;
+}
+
+.success-strategy-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  max-width: 1200px;
+  margin: 40px auto 0;
+  padding: 0 15px;
+}
+
+.success-strategy-diagram {
+  width: 100%;
+}
+
+.success-phases-list {
+  display: flex;
+  flex-direction: column;
+  gap: 50px;
+  width: 100%;
+}
+
+.success-phase-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+}
+
+.success-phase-title {
+  font-size: 30px;
+  font-weight: 700;
+  color: #1A73E8;
+  width: 12%;
+  flex-shrink: 0;
+  font-family: 'Sora', sans-serif;
+  text-align: left;
+}
+
+.success-list-container {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  list-style: none;
+}
+
+.success-phase-row .success-list-container:nth-child(2) {
+  width: 36%;
+}
+
+.success-phase-row .success-list-container:nth-child(3) {
+  width: 32%;
+}
+
+.bracket-left {
+  border-left: 3px solid #0377EF;
+  border-top: 3px solid #0377EF;
+  border-bottom: 3px solid #0377EF;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.success-list-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+}
+
+.aa-home .success-column-heading {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1A73E8;
+  margin: 0;
+  font-family: 'Sora', sans-serif;
+}
+
+.success-skills-list, .success-roles-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.success-skills-list li, .success-roles-list li {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0F172A;
+  position: relative;
+  padding-left: 16px;
+  line-height: 1.3;
+  font-family: 'Manrope', sans-serif;
+  cursor: default;
+  text-align: left;
+}
+
+.success-skills-list li::before, .success-roles-list li::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #0377EF;
+  font-weight: 900;
+}
+
+.success-bonus-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 20%;
+  flex-shrink: 0;
+  padding-left: 10px;
+}
+
+.success-plus-sign {
+  font-size: 36px;
+  font-weight: 800;
+  color: #0377EF;
+  flex-shrink: 0;
+  cursor: default;
+  font-family: 'Sora', sans-serif;
+}
+
+.success-bonus-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0F172A;
+  line-height: 1.3;
+  font-family: 'Manrope', sans-serif;
+  text-align: left;
+}
+
+@media (max-width: 1024px) {
+  .success-strategy-container {
+    margin-top: 30px;
+  }
+
+  .success-phases-list {
+    gap: 40px;
+  }
+
+  .success-phase-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    width: 100%;
+  }
+
+  .success-phase-title {
+    text-align: center;
+    width: auto !important;
+    font-size: 26px;
+  }
+
+  .success-list-container {
+    flex-direction: column;
+    align-items: center;
+    width: 100% !important;
+    gap: 12px;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-left: none !important;
+  }
+
+  .bracket-left {
+    width: 180px;
+    height: 14px;
+    border-left: 2.5px solid #0377EF;
+    border-bottom: 2.5px solid #0377EF;
+    border-right: 2.5px solid #0377EF;
+    border-top: none;
+    margin: 5px auto;
+  }
+
+  .success-list-content {
+    align-items: center;
+    width: 100%;
+  }
+
+  .aa-home .success-column-heading {
+    text-align: center;
+  }
+
+  .success-skills-list, .success-roles-list {
+    align-items: center;
+    text-align: center;
+    width: 100%;
+  }
+
+  .success-skills-list li, .success-roles-list li {
+    padding-left: 0;
+    text-align: center;
+  }
+
+  .success-skills-list li::before, .success-roles-list li::before {
+    display: none;
+  }
+
+  .success-bonus-container {
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding-left: 0;
+    text-align: center;
+    width: 100% !important;
+  }
+
+  .success-plus-sign {
+    font-size: 32px;
+  }
+}

@@ -1,53 +1,35 @@
-import { useMemo } from 'react';
-import useCourses from '../hooks/useCourses.js';
-import Hero from '../components/landing/Hero.jsx';
-import TrustBar from '../components/landing/TrustBar.jsx';
-import AboutSection from '../components/landing/AboutSection.jsx';
-import FeaturedCourses from '../components/landing/FeaturedCourses.jsx';
-import Categories from '../components/landing/Categories.jsx';
-import Features from '../components/landing/Features.jsx';
-import Testimonials from '../components/landing/Testimonials.jsx';
-import Instructors from '../components/landing/Instructors.jsx';
-import BlogSection from '../components/landing/BlogSection.jsx';
-import FaqSection from '../components/landing/FaqSection.jsx';
-import CTASection from '../components/landing/CTASection.jsx';
-import { formatHours } from '../utils/course.js';
+import HeroSection from '../components/home/HeroSection.jsx';
+import WhyAnalyticsSection from '../components/home/WhyAnalyticsSection.jsx';
+import MasterAISection from '../components/home/MasterAISection.jsx';
+import ExpertPanelSection from '../components/home/ExpertPanelSection.jsx';
+import SuccessModulesSection from '../components/home/SuccessModulesSection.jsx';
+import LiveBatchesSection from '../components/home/LiveBatchesSection.jsx';
+import TestimonialsSection from '../components/home/TestimonialsSection.jsx';
+import WorkingCompaniesSection from '../components/home/WorkingCompaniesSection.jsx';
+import POCsSection from '../components/home/POCsSection.jsx';
+import PlacementSection from '../components/home/PlacementSection.jsx';
+import HonoursAndRecognitions from '../components/home/HonoursAndRecognitions.jsx';
+import OutcomesSection from '../components/home/OutcomesSection.jsx';
+import FAQSection from '../components/home/FAQSection.jsx';
+import '../components/home/home.css';
 
-/**
- * Public landing page.
- *
- * Every number shown comes from the live catalogue; when the API is
- * unreachable the affected figures fall back to em-dashes and the
- * course-driven sections hide themselves rather than showing invented data.
- */
+/** Public landing page — Analytics Avenue design. */
 export default function Home() {
-  const { courses, status } = useCourses();
-  const loading = status === 'loading';
-
-  const stats = useMemo(() => {
-    const lessons = courses.reduce((sum, c) => sum + (c.lessonCount || 0), 0);
-    const hours = courses.reduce((sum, c) => sum + (c.hours || 0), 0);
-
-    return [
-      { label: 'Courses', value: courses.length || '—' },
-      { label: 'Lessons', value: lessons || '—' },
-      { label: 'Hours of content', value: formatHours(hours) || '—' },
-    ];
-  }, [courses]);
-
   return (
-    <>
-      <Hero stats={stats} />
-      <TrustBar />
-      <AboutSection stats={stats.slice(0, 2)} />
-      <FeaturedCourses courses={courses} loading={loading} />
-      <Categories courses={courses} />
-      <Features />
-      <Testimonials />
-      <Instructors courses={courses} />
-      <BlogSection />
-      <FaqSection />
-      <CTASection />
-    </>
+    <div className="aa-home">
+      <HeroSection />
+      <WhyAnalyticsSection />
+      <MasterAISection />
+      <ExpertPanelSection />
+      <SuccessModulesSection />
+      <LiveBatchesSection />
+      <TestimonialsSection />
+      <WorkingCompaniesSection />
+      <POCsSection />
+      <PlacementSection />
+      <HonoursAndRecognitions />
+      <OutcomesSection />
+      <FAQSection />
+    </div>
   );
 }

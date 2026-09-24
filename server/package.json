@@ -15,6 +15,7 @@
     "backfill": "node src/seed/backfillMetadata.js",
     "backfill:access": "node src/seed/backfillCourseAccess.js",
     "promote:admin": "node src/scripts/promoteAdmin.js",
+    "set:admin": "node src/scripts/setAdminAccount.js",
     "drive:check": "node src/scripts/driveCheck.js",
     "drive:link": "node src/scripts/driveLink.js",
     "drive:import": "node src/scripts/driveImport.js"

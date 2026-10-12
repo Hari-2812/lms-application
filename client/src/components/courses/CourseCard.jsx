@@ -80,14 +80,23 @@ export default function CourseCard({
             </Link>
           </h3>
           {!isEnrolled && (
-            <span className="shrink-0 text-sm font-bold text-primary-700">
-              {formatPrice(course.price)}
+            <span className="shrink-0 text-right">
+              <span className="block text-sm font-bold text-primary-700">
+                {formatPrice(course.price)}
+              </span>
+              {course.originalPrice > course.price && (
+                <span className="block text-[11px] text-ink-400 line-through">
+                  {formatPrice(course.originalPrice)}
+                </span>
+              )}
             </span>
           )}
         </div>
 
+        {/* The admin's short summary is written for exactly this slot; the
+            longer description is the fallback for courses without one. */}
         <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-ink-600">
-          {course.description}
+          {course.summary || course.description}
         </p>
 
         <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-500">
@@ -115,9 +124,12 @@ export default function CourseCard({
         <div className="mt-auto pt-4">
           {isEnrolled ? (
             locked ? (
-              <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink-500">
+              /* Could be an admin revocation or a payment still being
+                 confirmed — the course page knows which, so point there
+                 rather than guessing at the reason here. */
+              <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary-700">
                 <Lock className="h-4 w-4" aria-hidden="true" />
-                Contact your admin for access
+                Locked — see details
               </p>
             ) : (
               <>

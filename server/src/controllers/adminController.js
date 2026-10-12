@@ -5,24 +5,87 @@ const CourseAccess = require('../models/CourseAccess');
 const Resource = require('../models/Resource');
 const driveService = require('../services/googleDriveService');
 const { notifyUser, notifyUsers } = require('../services/notificationService');
+const { sanitizeHtml } = require('../utils/sanitizeHtml');
+
+/**
+ * Everything the admin dashboard is allowed to write on a course.
+ *
+ * Built as an allowlist rather than spreading req.body so that a request
+ * cannot reach fields the dashboard has no business setting — `driveFolderId`
+ * (owned by the Drive importer) and the `lessons` array (owned by
+ * addLesson/deleteLesson) in particular.
+ *
+ * Only keys actually present in the body are returned, so a partial edit
+ * (PUT with just a thumbnail) leaves every other field alone.
+ */
+const TEXT_FIELDS = [
+  'title', 'slug', 'description', 'summary', 'instructor', 'instructorTitle',
+  'level', 'category', 'accent', 'thumbnail', 'introVideoUrl', 'language',
+];
+const NUMBER_FIELDS = ['hours', 'price', 'originalPrice', 'rating', 'ratingCount', 'studentsCount'];
+const LIST_FIELDS = ['outcomes', 'requirements', 'features'];
+const BOOLEAN_FIELDS = ['published', 'certificateIncluded', 'hasDriveVideos'];
+
+/** Trims a bullet list, dropping blanks and capping length. */
+function cleanList(value) {
+  if (!Array.isArray(value)) {
+    if (typeof value !== 'string') return [];
+    value = value.split(/\r?\n/);
+  }
+  return value
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .slice(0, 40);
+}
+
+function buildCourseFields(body = {}) {
+  const fields = {};
+
+  for (const key of TEXT_FIELDS) {
+    if (body[key] === undefined) continue;
+    fields[key] = String(body[key]).trim();
+  }
+
+  for (const key of NUMBER_FIELDS) {
+    if (body[key] === undefined || body[key] === '') continue;
+    const number = Number(body[key]);
+    if (Number.isFinite(number) && number >= 0) fields[key] = number;
+  }
+
+  for (const key of LIST_FIELDS) {
+    if (body[key] === undefined) continue;
+    fields[key] = cleanList(body[key]);
+  }
+
+  for (const key of BOOLEAN_FIELDS) {
+    if (body[key] === undefined) continue;
+    fields[key] = Boolean(body[key]);
+  }
+
+  // The formatted long description is the one field that carries markup, so
+  // it is the one field that has to be sanitised.
+  if (body.descriptionHtml !== undefined) {
+    fields.descriptionHtml = sanitizeHtml(String(body.descriptionHtml));
+  }
+
+  return fields;
+}
 
 async function createCourse(req, res, next) {
   try {
-    const { title, slug, description, instructor, level } = req.body;
-    
+    const fields = buildCourseFields(req.body);
+    if (!fields.title) return res.status(400).json({ error: 'title is required' });
+    if (!fields.slug) return res.status(400).json({ error: 'slug is required' });
+
     // Check if course with slug already exists
-    const existingCourse = await Course.findOne({ slug });
+    const existingCourse = await Course.findOne({ slug: fields.slug });
     if (existingCourse) {
       return res.status(400).json({ error: 'Course with this slug already exists' });
     }
 
     const course = new Course({
-      title,
-      slug,
-      description,
-      instructor,
-      level,
-      hasDriveVideos: true // Assuming manually added courses have drive videos
+      hasDriveVideos: true, // Assuming manually added courses have drive videos
+      ...fields,
     });
 
     await course.save();
@@ -161,21 +224,43 @@ async function deleteLesson(req, res, next) {
   }
 }
 
+/**
+ * PUT /api/admin/courses/:id
+ *
+ * Accepts any subset of the course content fields, so the dashboard can save
+ * one panel at a time. Pass `notifyStudents: true` to tell everyone who
+ * currently has access that the course content changed.
+ */
 async function updateCourse(req, res, next) {
   try {
     const { id } = req.params;
-    const { title, slug, description, instructor, level } = req.body;
-    
-    const course = await Course.findByIdAndUpdate(
-      id,
-      { title, slug, description, instructor, level },
-      { new: true }
-    );
-    
+    const fields = buildCourseFields(req.body);
+
+    if (fields.slug) {
+      const clash = await Course.findOne({ slug: fields.slug, _id: { $ne: id } });
+      if (clash) return res.status(400).json({ error: 'Another course already uses this slug' });
+    }
+
+    const course = await Course.findByIdAndUpdate(id, fields, { new: true, runValidators: true });
+
     if (!course) {
       return res.status(404).json({ error: 'Course not found' });
     }
-    
+
+    if (req.body?.notifyStudents) {
+      const grants = await CourseAccess.find({ courseId: course._id, active: true }).select('studentId');
+      await notifyUsers(
+        grants.map((g) => g.studentId),
+        {
+          type: 'course_update',
+          title: 'Course updated',
+          message: `"${course.title}" has been updated with new content.`,
+          courseId: course._id,
+          link: `/my-courses/${course._id}`,
+        }
+      );
+    }
+
     res.json(course);
   } catch (err) {
     next(err);
@@ -377,13 +462,41 @@ async function bulkGrantAccess(req, res, next) {
   }
 }
 
-/** POST /api/admin/notifications  body: { studentId?, courseId?, message } */
+// What the admin composer is allowed to send. Everything else in the
+// Notification enum is raised by the system itself (access grants, new
+// lessons, milestones, certificates, payments) and is not sendable by hand.
+const SENDABLE_TYPES = new Set(['announcement', 'course_update', 'task', 'event', 'certificate']);
+
+const DEFAULT_TITLES = {
+  announcement: 'Announcement',
+  course_update: 'Course update',
+  task: 'Task assigned',
+  event: 'Upcoming event',
+  certificate: 'Certificate update',
+};
+
+/**
+ * POST /api/admin/notifications
+ * body: { studentId?, courseId?, message, type?, title?, link? }
+ *
+ * Targets one student, everyone with access to one course, or every student.
+ */
 async function broadcastNotification(req, res, next) {
   try {
-    const { studentId, courseId, message } = req.body || {};
+    const { studentId, courseId, message, type, title, link } = req.body || {};
     if (!message) return res.status(400).json({ error: 'message is required' });
 
-    const payload = { type: 'announcement', title: 'Announcement', message, courseId };
+    const resolvedType = SENDABLE_TYPES.has(type) ? type : 'announcement';
+
+    const payload = {
+      type: resolvedType,
+      title: String(title || '').trim() || DEFAULT_TITLES[resolvedType],
+      message: String(message).trim(),
+      courseId,
+      // An in-app path only — an absolute URL here would turn every
+      // notification into an open redirect off the dashboard.
+      link: typeof link === 'string' && link.startsWith('/') ? link : '',
+    };
 
     if (studentId) {
       await notifyUser(studentId, payload);

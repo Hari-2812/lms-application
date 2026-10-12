@@ -9,3 +9,4 @@ credentials/*
 !credentials/README.md
 *service-account*.json
 lms-drive-videos-*.json
+uploads/

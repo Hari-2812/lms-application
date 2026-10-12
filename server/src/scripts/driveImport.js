@@ -7,6 +7,18 @@
  *   npm run drive:import -- --apply --prune   also delete lessons whose Drive file is gone
  *   npm run drive:import -- --title="My Course"   name the course (flat folder only)
  *
+ * Targeted mode — fill ONE existing course from ONE Drive folder:
+ *
+ *   npm run drive:import -- --course=<id|slug> --folder=<folder id or URL>
+ *   npm run drive:import -- --course=<id|slug> --folder=<...> --apply
+ *
+ * Use this to re-attach videos to a course that already exists but has no
+ * lessons (see `npm run restore:courses`). Ordinary mode matches a Drive
+ * folder to a course by driveFolderId or slug, which would create a second
+ * course alongside the one you meant to fill; targeted mode writes the
+ * lessons onto the course you name and records the folder id on it, so later
+ * runs match it automatically.
+ *
  * Drive layout drives the structure:
  *
  *   lms/                          <- GOOGLE_DRIVE_FOLDER_ID
@@ -34,6 +46,17 @@ const APPLY = args.includes('--apply');
 const REPLACE = args.includes('--replace');
 const PRUNE = args.includes('--prune');
 const TITLE_ARG = (args.find((a) => a.startsWith('--title=')) || '').split('=').slice(1).join('=');
+
+/** Value of a --key=value flag, or '' when absent. */
+const flag = (name) =>
+  (args.find((a) => a.startsWith(`--${name}=`)) || '').split('=').slice(1).join('=').trim();
+
+// Targeted mode: attach ONE Drive folder's videos to ONE existing course,
+// instead of deriving the whole catalogue from the root folder. Added for
+// recovery — a restored course has no driveFolderId, so ordinary matching
+// would build a duplicate course beside it rather than filling it.
+const FOLDER_ARG = flag('folder');
+const COURSE_ARG = flag('course');
 
 /** "01 - Intro to React.mp4" -> "Intro to React"; "Lesson-3.mp4" -> "Lesson 3" */
 function titleFromFilename(name) {
@@ -70,9 +93,10 @@ const ACCENTS = ['sky', 'emerald', 'violet', 'amber', 'rose'];
 function toLessons(files) {
   return files
     .map((file, index) => ({
-      videoFileId: file.id,
+      driveFileId: file.id,
       title: titleFromFilename(file.name),
       fileName: file.name,
+      mimeType: file.mimeType || 'video/mp4',
       duration: file.durationSeconds || 0,
       sortKey: orderFromFilename(file.name) ?? index + 1,
     }))
@@ -137,30 +161,37 @@ async function upsertCourse(group, accentIndex) {
 }
 
 async function syncLessons(course, lessons) {
-  const existing = await Lesson.find({ courseId: course._id }).select('+videoFileId');
-  const byFileId = new Map(existing.map((l) => [l.videoFileId, l]));
+  // driveFileId is stripped by Lesson.toJSON() but is a normal selected path,
+  // so no explicit +select is needed to read it here.
+  const existing = await Lesson.find({ courseId: course._id });
+  const byFileId = new Map(existing.map((l) => [l.driveFileId, l]));
 
   let created = 0;
   let updated = 0;
 
   for (const spec of lessons) {
-    const current = byFileId.get(spec.videoFileId);
+    const current = byFileId.get(spec.driveFileId);
 
     if (current) {
       current.title = spec.title;
       current.order = spec.order;
+      current.driveFileName = spec.fileName;
+      if (spec.mimeType) current.mimeType = spec.mimeType;
       if (spec.duration) current.duration = spec.duration;
       await current.save();
       updated += 1;
-      byFileId.delete(spec.videoFileId);
+      byFileId.delete(spec.driveFileId);
     } else {
       await Lesson.create({
         courseId: course._id,
-        videoFileId: spec.videoFileId,
+        driveFileId: spec.driveFileId,
+        driveFileName: spec.fileName,
+        mimeType: spec.mimeType,
         title: spec.title,
         description: '',
         order: spec.order,
         duration: spec.duration,
+        folderId: course.driveFolderId,
       });
       created += 1;
     }
@@ -179,11 +210,121 @@ async function syncLessons(course, lessons) {
   return { created, updated, stale: stale.length, removed };
 }
 
+/**
+ * Targeted mode: attach one Drive folder's videos to one existing course.
+ *
+ * The course is looked up by _id or slug and is never created — if it is not
+ * found, that is a typo worth stopping on rather than silently making a new
+ * course, which is the exact outcome this mode exists to avoid.
+ */
+async function importIntoCourse(rawFolder, courseRef) {
+  const folderId = driveService.normaliseFolderId(rawFolder);
+  if (!folderId) {
+    console.error(`\n  ✗ Could not read a Drive folder id from "${rawFolder}".\n`);
+    process.exit(1);
+  }
+
+  // Read Drive before touching the database, so a bad folder fails cheaply.
+  let folder;
+  try {
+    folder = await driveService.getFolderMetadata(folderId);
+  } catch (err) {
+    console.error(`\n  ✗ Drive folder ${folderId} is not reachable: ${err.message}`);
+    console.error('    Share it with the service account — see npm run drive:check.\n');
+    process.exit(1);
+  }
+
+  const files = await driveService.listFolderVideos(folderId);
+  if (!files.length) {
+    console.error(`\n  ✗ No video files found in Drive folder "${folder.name}".\n`);
+    process.exit(1);
+  }
+  const lessons = toLessons(files);
+
+  await connectDB();
+
+  // An ObjectId-shaped ref is looked up by _id, anything else by slug.
+  const course = /^[0-9a-f]{24}$/i.test(courseRef)
+    ? await Course.findById(courseRef)
+    : await Course.findOne({ slug: courseRef });
+
+  if (!course) {
+    console.error(`\n  ✗ No course matches "${courseRef}".`);
+    const all = await Course.find().select('title slug').lean();
+    if (all.length) {
+      console.error('    Existing courses:');
+      all.forEach((c) => console.error(`      ${c._id}  ${c.slug}  — ${c.title}`));
+    }
+    console.error('');
+    await mongoose.disconnect();
+    process.exit(1);
+  }
+
+  const existingLessons = await Lesson.countDocuments({ courseId: course._id });
+
+  console.log(`\n  ${APPLY ? 'Importing' : 'Dry run —'} Drive folder "${folder.name}"`);
+  console.log(`  into course "${course.title}"  (${course._id})\n`);
+  console.log(`  course currently has ${existingLessons} lesson(s)`);
+  console.log(`  folder has ${lessons.length} video(s):\n`);
+
+  lessons.forEach((lesson) => {
+    const mins = lesson.duration
+      ? `${Math.floor(lesson.duration / 60)}:${String(lesson.duration % 60).padStart(2, '0')}`
+      : '—';
+    console.log(`   ${String(lesson.order).padStart(2, '0')}. ${lesson.title}`);
+    console.log(`       ${lesson.fileName}  ${mins}`);
+  });
+
+  if (!APPLY) {
+    console.log('\n  Nothing was written. Re-run with --apply to write these lessons:');
+    console.log(`    npm run drive:import -- --course=${courseRef} --folder=${folderId} --apply\n`);
+    await mongoose.disconnect();
+    return;
+  }
+
+  const stats = await syncLessons(course, lessons);
+
+  // Recording the folder id is what makes a later plain `drive:import` update
+  // this course instead of building a duplicate beside it.
+  course.driveFolderId = folderId;
+  course.hasDriveVideos = true;
+  course.hours = Math.round((lessons.reduce((sum, l) => sum + l.duration, 0) / 3600) * 10) / 10;
+
+  const ordered = await Lesson.find({ courseId: course._id }).sort({ order: 1 }).select('_id');
+  course.lessons = ordered.map((l) => l._id);
+  await course.save();
+
+  console.log(
+    `\n  ✓ ${course.title}: ${stats.created} created, ${stats.updated} updated` +
+      (stats.stale
+        ? `, ${stats.stale} existing lesson(s) absent from this folder${
+            PRUNE ? ` (${stats.removed} removed)` : ' (left alone; --prune removes them)'
+          }`
+        : '')
+  );
+  console.log(`    lessons now: ${course.lessons.length}   hours: ${course.hours}`);
+  console.log('    driveFolderId recorded, so future runs match this course.\n');
+
+  await mongoose.disconnect();
+}
+
 async function main() {
   if (!driveService.isConfigured()) {
     console.error('\n  ✗ Drive is not configured. Run `npm run drive:check` first.\n');
     process.exit(1);
   }
+
+  // Targeted mode needs both flags; one without the other is a mistake that
+  // should not be quietly reinterpreted as a full-catalogue import.
+  if (FOLDER_ARG || COURSE_ARG) {
+    if (!FOLDER_ARG || !COURSE_ARG) {
+      console.error('\n  ✗ --folder and --course must be used together.');
+      console.error('    npm run drive:import -- --course=<id|slug> --folder=<folder id or URL>\n');
+      process.exit(1);
+    }
+    return importIntoCourse(FOLDER_ARG, COURSE_ARG);
+  }
+
   if (!driveService.getFolderId()) {
     console.error('\n  ✗ GOOGLE_DRIVE_FOLDER_ID is not set. Run `npm run drive:check`.\n');
     process.exit(1);
@@ -233,6 +374,13 @@ async function main() {
   for (const group of groups) {
     const course = await upsertCourse(group, accentIndex++);
     const stats = await syncLessons(course, group.lessons);
+
+    // The admin dashboard reads its lesson count off Course.lessons, so the
+    // array has to track what syncLessons just wrote.
+    const ordered = await Lesson.find({ courseId: course._id }).sort({ order: 1 }).select('_id');
+    course.lessons = ordered.map((l) => l._id);
+    await course.save();
+
     keptCourseIds.push(course._id);
 
     console.log(

@@ -100,6 +100,70 @@
   .eyebrow {
     @apply text-xs font-semibold uppercase tracking-[0.14em] text-primary-600;
   }
+
+  /* Admin-authored rich text ---------------------------------------- */
+  /* Shared by the course content editor and the student-facing course
+     description, so what the admin types is what the student sees.
+     Element selectors rather than a typography plugin: the markup comes
+     from the editor's allowlist, so the set of tags here is closed. */
+  .prose-course {
+    @apply text-sm leading-relaxed text-ink-700;
+  }
+  .prose-course > :first-child {
+    @apply mt-0;
+  }
+  .prose-course > :last-child {
+    @apply mb-0;
+  }
+  .prose-course p {
+    @apply my-3;
+  }
+  .prose-course h1,
+  .prose-course h2 {
+    @apply mb-2 mt-5 text-base font-semibold text-ink-900;
+  }
+  .prose-course h3,
+  .prose-course h4 {
+    @apply mb-1.5 mt-4 text-sm font-semibold text-ink-900;
+  }
+  .prose-course ul {
+    @apply my-3 list-disc space-y-1.5 pl-5;
+  }
+  .prose-course ol {
+    @apply my-3 list-decimal space-y-1.5 pl-5;
+  }
+  .prose-course a {
+    @apply font-medium text-primary-700 underline decoration-primary-300 underline-offset-2 hover:text-primary-800;
+  }
+  .prose-course blockquote {
+    @apply my-4 border-l-2 border-primary-200 pl-4 italic text-ink-600;
+  }
+  .prose-course code {
+    @apply rounded bg-ink-100 px-1.5 py-0.5 font-mono text-[0.85em] text-ink-800;
+  }
+  .prose-course pre {
+    @apply my-3 overflow-x-auto rounded-lg bg-ink-900 p-4 text-[13px] text-ink-100;
+  }
+  .prose-course pre code {
+    @apply bg-transparent p-0 text-inherit;
+  }
+  .prose-course strong,
+  .prose-course b {
+    @apply font-semibold text-ink-900;
+  }
+  .prose-course hr {
+    @apply my-5 border-ink-100;
+  }
+  .prose-course table {
+    @apply my-4 w-full border-collapse text-left;
+  }
+  .prose-course th,
+  .prose-course td {
+    @apply border border-ink-100 px-3 py-2;
+  }
+  .prose-course th {
+    @apply bg-ink-50 font-semibold text-ink-900;
+  }
 }
 
 @layer utilities {
@@ -137,4 +201,46 @@
 }
 .player-range::-moz-range-thumb {
   @apply h-3 w-3 rounded-full border-0 bg-white;
+}
+
+/* Certificate printing ------------------------------------------------
+   "Download" on a certificate opens the browser's print dialogue, where
+   "Save as PDF" is the default destination on every current platform. The
+   rules below strip the dashboard chrome so only the certificate face
+   lands on the page, and force the colours to print rather than being
+   dropped as background graphics.
+
+   `data-print-root` is set on the certificate being printed; see
+   pages/Certificates.jsx. */
+@media print {
+  body.printing-certificate * {
+    visibility: hidden;
+  }
+  body.printing-certificate [data-print-root],
+  body.printing-certificate [data-print-root] * {
+    visibility: visible;
+  }
+  body.printing-certificate [data-print-root] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  body.printing-certificate [data-print-hide] {
+    display: none !important;
+  }
+}
+
+/* Keeps the dark certificate face from printing as a white box. */
+[data-print-root] {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+@page {
+  size: A4 landscape;
+  margin: 12mm;
 }

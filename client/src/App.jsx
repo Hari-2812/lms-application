@@ -23,12 +23,15 @@ const Resources = lazy(() => import('./pages/Resources.jsx'));
 const CourseLearning = lazy(() => import('./pages/CourseLearning.jsx'));
 const ProgressPage = lazy(() => import('./pages/ProgressPage.jsx'));
 const Certificates = lazy(() => import('./pages/Certificates.jsx'));
-const Achievements = lazy(() => import('./pages/Achievements.jsx'));
 const Wishlist = lazy(() => import('./pages/Wishlist.jsx'));
 const Profile = lazy(() => import('./pages/Profile.jsx'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'));
 const HowItWorksPage = lazy(() => import('./pages/HowItWorksPage.jsx'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard.jsx'));
+const Checkout = lazy(() => import('./pages/Checkout.jsx'));
+const Events = lazy(() => import('./pages/Events.jsx'));
+const TaskSubmission = lazy(() => import('./pages/TaskSubmission.jsx'));
+const Notifications = lazy(() => import('./pages/Notifications.jsx'));
 
 function RouteFallback() {
   return (
@@ -117,7 +120,12 @@ export default function App() {
               <Route path="/resources" element={<Resources />} />
               <Route path="/progress" element={<ProgressPage />} />
               <Route path="/certificates" element={<Certificates />} />
-              <Route path="/achievements" element={<Achievements />} />
+              <Route path="/notifications" element={<Notifications />} />
+              <Route path="/events" element={<Events />} />
+              <Route path="/tasks" element={<TaskSubmission />} />
+              {/* Checkout lives under /courses so it reads as a step in the
+                  catalogue flow, but it needs a signed-in student. */}
+              <Route path="/courses/:courseId/enrol" element={<Checkout />} />
               <Route path="/wishlist" element={<Wishlist />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/settings" element={<SettingsPage />} />

@@ -19,6 +19,13 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      // Admin-uploaded course thumbnails live on the API's disk and are
+      // served from /uploads. Without this they 404 against the dev server
+      // and every uploaded thumbnail renders as a broken image.
+      '/uploads': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
     },
   },
 });

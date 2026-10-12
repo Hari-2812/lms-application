@@ -1,11 +1,7 @@
 const Lesson = require('../models/Lesson');
 const CourseAccess = require('../models/CourseAccess');
 
-/**
- * Returns middleware that 403s unless the signed-in student has an active
- * CourseAccess grant for the course resolved by `resolveCourseId(req)`.
- * Admins always pass. Must run after requireAuth.
- */
+
 function requireCourseAccess(resolveCourseId) {
   return async function (req, res, next) {
     try {

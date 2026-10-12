@@ -1,4 +1,5 @@
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
 
 export function LoadingState({ label = 'Loading…' }) {
   return (
@@ -12,8 +13,21 @@ export function LoadingState({ label = 'Loading…' }) {
   );
 }
 
+/**
+ * Failure panel used by every data-loading page.
+ *
+ * The hint under the message is chosen from the error itself rather than
+ * being fixed. It used to always say "run npm run seed", which is advice
+ * that wipes the catalogue — never the right answer to a page that failed
+ * to load, and actively destructive on a populated database.
+ */
 export function ErrorState({ message }) {
   const displayMessage = typeof message === 'string' ? message : 'The API could not be reached.';
+
+  const isExpiredSession = /invalid or expired token|not authenticated|no token provided/i.test(
+    displayMessage
+  );
+  const isForbidden = /admin access required|access/i.test(displayMessage);
 
   return (
     <div role="alert" className="card flex items-start gap-3 p-5">
@@ -21,16 +35,36 @@ export function ErrorState({ message }) {
         <AlertCircle className="h-4.5 w-4.5" aria-hidden="true" />
       </span>
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-ink-900">Something went wrong</p>
-        <p className="mt-1 text-[13px] leading-relaxed text-ink-600">{displayMessage}</p>
-        <p className="mt-2 text-[13px] text-ink-500">
-          Check that the API is running on{' '}
-          <code className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[12px]">
-            http://localhost:5000
-          </code>{' '}
-          and that <code className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[12px]">npm run seed</code>{' '}
-          has been executed.
+        <p className="text-sm font-semibold text-ink-900">
+          {isExpiredSession ? 'Your session has expired' : 'Something went wrong'}
         </p>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-600">
+          {isExpiredSession
+            ? 'You have been signed out because your session is no longer valid.'
+            : displayMessage}
+        </p>
+
+        {isExpiredSession ? (
+          <Link
+            to="/login"
+            className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary-700 hover:text-primary-800"
+          >
+            Sign in again
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+        ) : isForbidden ? (
+          <p className="mt-2 text-[13px] text-ink-500">
+            Ask an administrator to grant you access to this course.
+          </p>
+        ) : (
+          <p className="mt-2 text-[13px] text-ink-500">
+            Check that the API is running on{' '}
+            <code className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[12px]">
+              http://localhost:5000
+            </code>
+            , then reload the page.
+          </p>
+        )}
       </div>
     </div>
   );

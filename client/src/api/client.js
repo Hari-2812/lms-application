@@ -29,6 +29,50 @@ export function setAuthToken(token) {
   else delete api.defaults.headers.common.Authorization;
 }
 
+/**
+ * Called when the server rejects our token.
+ *
+ * AuthContext registers a handler here on mount. Keeping it as a callback
+ * rather than importing the context avoids a cycle (context -> client ->
+ * context) and keeps this module free of React.
+ */
+let onUnauthorized = null;
+
+export function setUnauthorizedHandler(handler) {
+  onUnauthorized = handler;
+}
+
+/**
+ * A 401 on an authenticated route means the stored token is expired or no
+ * longer valid, and nothing the student does will succeed until they sign in
+ * again.
+ *
+ * Without this, an expired token left the app in a half-signed-in state:
+ * endpoints using optionalAuth (the course catalogue) still answered, so the
+ * dashboard rendered normally, while every requireAuth page — Certificates,
+ * Progress, Notifications — failed with a bare "Invalid or expired token".
+ */
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    const url = error?.config?.url || '';
+
+    // /auth/login and /auth/register answer 401 for bad credentials. That is
+    // a form error for a signed-out visitor, not an expired session.
+    const isAuthAttempt = url.includes('/auth/login') || url.includes('/auth/register');
+
+    // Only meaningful if we actually sent a token.
+    const hadToken = Boolean(api.defaults.headers.common.Authorization);
+
+    if (status === 401 && !isAuthAttempt && hadToken) {
+      onUnauthorized?.();
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 export const getMe = () => api.get('/me').then((r) => r.data);
 export const getHealth = () => api.get('/health').then((r) => r.data);
 
@@ -79,6 +123,50 @@ export const bulkGrantAccess = (studentIds, courseId) =>
 export const broadcastNotification = (payload) =>
   api.post('/admin/notifications', payload).then((r) => r.data);
 
+// --- admin: enrolments awaiting payment confirmation ------------------------
+export const getEnrollments = (status) =>
+  api.get('/admin/enrollments', { params: status ? { status } : undefined }).then((r) => r.data);
+export const confirmEnrollment = (id, reference) =>
+  api.post(`/admin/enrollments/${id}/confirm`, { reference }).then((r) => r.data);
+export const cancelEnrollment = (id) =>
+  api.post(`/admin/enrollments/${id}/cancel`).then((r) => r.data);
+
+// --- admin: thumbnail uploads -----------------------------------------------
+/** Uploads an image file and resolves to its served path, e.g. /uploads/... */
+export const uploadCourseImage = (file, onProgress) => {
+  const body = new FormData();
+  body.append('file', file);
+
+  return api
+    .post('/admin/uploads/image', body, {
+      // Let the browser set Content-Type so it can add the multipart boundary.
+      onUploadProgress: (event) => {
+        if (!onProgress || !event.total) return;
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      },
+    })
+    .then((r) => r.data);
+};
+
+export const deleteCourseImage = (filename) =>
+  api.delete(`/admin/uploads/thumbnails/${filename}`).then((r) => r.data);
+
+/**
+ * Turns a stored media path into something an <img> can load.
+ *
+ * Uploads are stored as site-relative paths ("/uploads/..."), which are
+ * served by the API. On a split deploy the frontend and API are different
+ * origins, so a bare relative path would resolve against the frontend and
+ * 404 — this prefixes API_ORIGIN when there is one. Absolute URLs (an
+ * Unsplash or Drive link an admin pasted) are returned untouched.
+ */
+export function resolveMediaUrl(url) {
+  if (!url) return '';
+  if (/^(https?:)?\/\//i.test(url) || url.startsWith('data:')) return url;
+  if (url.startsWith('/uploads/')) return `${API_ORIGIN}${url}`;
+  return url;
+}
+
 // --- admin: resources -------------------------------------------------------
 export const addResource = (payload) => api.post('/admin/resources', payload).then((r) => r.data);
 export const updateResource = (resourceId, payload) =>
@@ -91,6 +179,48 @@ export const getNotifications = (cursor) =>
   api.get('/notifications', { params: cursor ? { cursor } : undefined }).then((r) => r.data);
 export const markNotificationRead = (id) => api.patch(`/notifications/${id}/read`).then((r) => r.data);
 export const markAllNotificationsRead = () => api.patch('/notifications/read-all').then((r) => r.data);
+
+// --- certificates -----------------------------------------------------------
+// Course certificates are generated server-side on completion; this list is
+// the record of what has been issued. `generateSampleCertificate` drives the
+// free sample flow in the Certificates section.
+export const getCertificates = () => api.get('/certificates').then((r) => r.data);
+export const issueCertificate = (courseId) =>
+  api.post('/certificates/issue', { courseId }).then((r) => r.data);
+export const generateSampleCertificate = (payload) =>
+  api.post('/certificates/sample', payload).then((r) => r.data);
+export const deleteCertificate = (id) => api.delete(`/certificates/${id}`).then((r) => r.data);
+export const verifyCertificate = (serial) =>
+  api.get(`/certificates/verify/${serial}`).then((r) => r.data);
+
+// --- enrolment / checkout ---------------------------------------------------
+export const enrol = (courseId, method) =>
+  api.post('/enrollments', { courseId, method }).then((r) => r.data);
+export const getMyEnrollments = () => api.get('/enrollments/mine').then((r) => r.data);
+
+// --- upcoming events --------------------------------------------------------
+export const getEvents = (scope = 'upcoming') =>
+  api.get('/events', { params: { scope } }).then((r) => r.data);
+export const getEvent = (id) => api.get(`/events/${id}`).then((r) => r.data);
+
+// --- admin: events ----------------------------------------------------------
+export const getAllEvents = () => api.get('/admin/events').then((r) => r.data);
+export const createEvent = (payload) => api.post('/admin/events', payload).then((r) => r.data);
+export const updateEvent = (id, payload) => api.put(`/admin/events/${id}`, payload).then((r) => r.data);
+export const deleteEvent = (id) => api.delete(`/admin/events/${id}`).then((r) => r.data);
+
+// --- task submissions -------------------------------------------------------
+export const getSubmissionCategories = () =>
+  api.get('/submissions/categories').then((r) => r.data);
+export const getMySubmissions = () => api.get('/submissions/mine').then((r) => r.data);
+export const createSubmission = (payload) => api.post('/submissions', payload).then((r) => r.data);
+export const withdrawSubmission = (id) => api.delete(`/submissions/${id}`).then((r) => r.data);
+
+// --- admin: submission review ----------------------------------------------
+export const getAllSubmissions = (params) =>
+  api.get('/admin/submissions', { params }).then((r) => r.data);
+export const reviewSubmission = (id, payload) =>
+  api.patch(`/admin/submissions/${id}`, payload).then((r) => r.data);
 
 // --- progress -------------------------------------------------------------
 export const getProgress = (lessonId) => api.get(`/progress/${lessonId}`).then((r) => r.data);

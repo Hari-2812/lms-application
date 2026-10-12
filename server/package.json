@@ -18,7 +18,9 @@
     "set:admin": "node src/scripts/setAdminAccount.js",
     "drive:check": "node src/scripts/driveCheck.js",
     "drive:link": "node src/scripts/driveLink.js",
-    "drive:import": "node src/scripts/driveImport.js"
+    "drive:import": "node src/scripts/driveImport.js",
+    "restore:courses": "node src/scripts/restoreCourses.js",
+    "delete:course": "node src/scripts/deleteCourse.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -28,6 +30,7 @@
     "googleapis": "^144.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.9.5",
+    "multer": "^2.4.0",
     "socket.io": "^4.8.1"
   }
 }

@@ -2,6 +2,7 @@ const Course = require('../models/Course');
 const Lesson = require('../models/Lesson');
 const Progress = require('../models/Progress');
 const CourseAccess = require('../models/CourseAccess');
+const Enrollment = require('../models/Enrollment');
 
 /**
  * Attach lesson counts, this student's completion percentage, and whether
@@ -52,7 +53,12 @@ async function decorateCourses(courses, student) {
 /** GET /api/courses */
 async function listCourses(req, res, next) {
   try {
-    const courses = await Course.find().sort({ createdAt: 1 });
+    // Draft courses are editable in the admin dashboard but stay out of the
+    // student-facing catalogue. `$ne: false` rather than `true` so courses
+    // created before the field existed keep showing up.
+    const filter = req.user?.role === 'admin' ? {} : { published: { $ne: false } };
+
+    const courses = await Course.find(filter).sort({ createdAt: 1 });
     res.json(await decorateCourses(courses, req.user));
   } catch (err) {
     next(err);
@@ -64,8 +70,19 @@ async function getCourse(req, res, next) {
   try {
     const course = await Course.findById(req.params.id);
     if (!course) return res.status(404).json({ error: 'Course not found' });
+    if (course.published === false && req.user?.role !== 'admin') {
+      return res.status(404).json({ error: 'Course not found' });
+    }
 
     const [decorated] = await decorateCourses([course], req.user);
+
+    // The details page needs to tell "not enrolled" apart from "enrolled,
+    // payment still being confirmed" so it can show the right call to action.
+    if (req.user) {
+      const enrollment = await Enrollment.findOne({ studentId: req.user._id, courseId: course._id });
+      decorated.enrollmentStatus = enrollment?.status || null;
+    }
+
     res.json(decorated);
   } catch (err) {
     next(err);

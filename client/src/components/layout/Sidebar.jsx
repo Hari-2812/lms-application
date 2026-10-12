@@ -2,14 +2,16 @@ import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Award,
+  Bell,
   BookOpen,
+  CalendarClock,
+  ClipboardList,
   Compass,
   FileText,
   Heart,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
-  Medal,
   Settings,
   ShieldCheck,
   TrendingUp,
@@ -18,6 +20,7 @@ import {
 } from 'lucide-react';
 import Logo from '../common/Logo.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useNotifications } from '../../context/NotificationContext.jsx';
 import useWishlist from '../../hooks/useWishlist.js';
 
 const primaryLinks = [
@@ -27,7 +30,9 @@ const primaryLinks = [
   { to: '/resources', label: 'Resources', icon: FileText },
   { to: '/wishlist', label: 'Wishlist', icon: Heart, badge: 'wishlist' },
   { to: '/certificates', label: 'Certificates', icon: Award },
-  { to: '/achievements', label: 'Achievements', icon: Medal },
+  { to: '/events', label: 'Upcoming Events', icon: CalendarClock },
+  { to: '/tasks', label: 'Task Submission', icon: ClipboardList },
+  { to: '/notifications', label: 'Notifications', icon: Bell, badge: 'notifications' },
   { to: '/progress', label: 'Progress', icon: TrendingUp },
 ];
 
@@ -39,23 +44,37 @@ const accountLinks = [
 function Nav({ onNavigate, onClose }) {
   const { signOut } = useAuth();
   const { count } = useWishlist();
+  const { unreadCount } = useNotifications();
 
-  const renderLink = ({ to, label, icon: Icon, badge }) => (
-    <NavLink
-      key={to}
-      to={to}
-      onClick={onNavigate}
-      className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`}
-    >
-      <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-      <span className="flex-1">{label}</span>
-      {badge === 'wishlist' && count > 0 && (
-        <span className="rounded-md bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-ink-600">
-          {count}
-        </span>
-      )}
-    </NavLink>
-  );
+  // Which running total, if any, a link shows next to its label.
+  const badgeCounts = { wishlist: count, notifications: unreadCount };
+
+  const renderLink = ({ to, label, icon: Icon, badge }) => {
+    const badgeCount = badge ? badgeCounts[badge] : 0;
+
+    return (
+      <NavLink
+        key={to}
+        to={to}
+        onClick={onNavigate}
+        className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`}
+      >
+        <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+        <span className="flex-1">{label}</span>
+        {badgeCount > 0 && (
+          <span
+            className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+              badge === 'notifications'
+                ? 'bg-primary-600 text-white'
+                : 'bg-ink-100 text-ink-600'
+            }`}
+          >
+            {badgeCount > 9 && badge === 'notifications' ? '9+' : badgeCount}
+          </span>
+        )}
+      </NavLink>
+    );
+  };
 
   return (
     <>

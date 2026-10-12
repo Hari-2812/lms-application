@@ -1,15 +1,4 @@
-/**
- * Video Service
- * ---------------------------------------------------------------
- * Resolves a lessonId -> Drive file id, then asks the Google Drive service
- * for the bytes. Normalises everything into a single shape the controller
- * can write to the HTTP response.
- *
- * Local-media fallback: when no service-account credentials are configured
- * the service streams an .mp4 from server/demo-media/ instead, so the UI
- * demo still runs offline. The HTTP contract (range handling, headers,
- * 206/200) is identical, only the byte source changes.
- */
+
 const fs = require('fs');
 const path = require('path');
 const Lesson = require('../models/Lesson');
@@ -111,9 +100,9 @@ async function getLessonVideoStream(lessonId, rangeHeader) {
     const err = new Error(
       driveService.isConfigured()
         ? `Lesson "${lesson.title}" still has a placeholder video id. Run ` +
-          '`npm run drive:check` then `npm run drive:link -- --apply` to attach the real Drive files.'
+        '`npm run drive:check` then `npm run drive:link -- --apply` to attach the real Drive files.'
         : 'Google Drive is not configured and no local demo video was found in server/demo-media/. ' +
-          'Set GOOGLE_SERVICE_ACCOUNT_KEY_FILE in server/.env, or drop a sample.mp4 into server/demo-media/.'
+        'Set GOOGLE_SERVICE_ACCOUNT_KEY_FILE in server/.env, or drop a sample.mp4 into server/demo-media/.'
     );
     err.status = 503;
     throw err;

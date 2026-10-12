@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowRight, Lock, Mail } from 'lucide-react';
 import AuthLayout from '../components/layout/AuthLayout.jsx';
 import Button from '../components/common/Button.jsx';
@@ -20,15 +20,31 @@ export default function Login() {
   const { signIn, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [params] = useSearchParams();
 
   const [form, setForm] = useState({ email: '', password: '', remember: true });
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  /**
+   * Where to land after signing in, in order of preference: the page a
+   * ProtectedRoute bounced the student away from, then an explicit ?next=
+   * (used by the enrol flow), then the dashboard. The parameter is
+   * restricted to in-app paths so it cannot redirect off-site.
+   */
+  const requestedNext = params.get('next') || '';
+  const destination =
+    location.state?.from?.pathname ||
+    (requestedNext.startsWith('/') && !requestedNext.startsWith('//') ? requestedNext : '') ||
+    '/dashboard';
+
+  // Passed along when switching to the sign-up form.
+  const nextQuery = requestedNext ? `?next=${encodeURIComponent(requestedNext)}` : '';
+
   // Send an already-signed-in student straight through.
   if (isAuthenticated) {
-    return <Navigate to={location.state?.from?.pathname || '/dashboard'} replace />;
+    return <Navigate to={destination} replace />;
   }
 
   const setField = (name) => (event) => {
@@ -54,7 +70,7 @@ export default function Login() {
     setSubmitting(true);
     try {
       await signIn(form);
-      navigate(location.state?.from?.pathname || '/dashboard', { replace: true });
+      navigate(destination, { replace: true });
     } catch (err) {
       setSubmitError(toErrorMessage(err, 'We could not sign you in. Check your details and try again.'));
     } finally {
@@ -70,7 +86,7 @@ export default function Login() {
       footer={
         <>
           Don&apos;t have an account?{' '}
-          <Link to="/register" className="font-semibold text-primary-700 hover:text-primary-800">
+          <Link to={`/register${nextQuery}`} className="font-semibold text-primary-700 hover:text-primary-800">
             Create account
           </Link>
         </>

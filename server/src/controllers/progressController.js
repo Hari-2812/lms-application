@@ -2,6 +2,7 @@ const Lesson = require('../models/Lesson');
 const Progress = require('../models/Progress');
 const Course = require('../models/Course');
 const { notifyUser } = require('../services/notificationService');
+const certificateService = require('../services/certificateService');
 
 const COMPLETE_AT_PERCENT = 90; // "watched enough" threshold for the demo
 const MILESTONES = [50, 100];
@@ -68,6 +69,14 @@ async function saveProgress(req, res, next) {
 
     if (completed && !wasCompleted) {
       await checkCourseMilestone(req.student.id, lesson.courseId);
+
+      // Finishing the last lesson generates the course certificate. A no-op
+      // when the course still has lessons left, or when the certificate was
+      // already issued. Never fails the progress save: a certificate that
+      // did not get created here is picked up by GET /api/certificates.
+      await certificateService
+        .issueForCourse(req.student.id, lesson.courseId)
+        .catch((err) => console.error('[progress] certificate issue failed:', err.message));
     }
 
     res.json({

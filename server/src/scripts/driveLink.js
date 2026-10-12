@@ -2,7 +2,7 @@
  * Map Drive files onto lessons: npm run drive:link
  *
  *   npm run drive:link                 dry run — prints the proposed mapping
- *   npm run drive:link -- --apply      writes videoFileId (and real duration)
+ *   npm run drive:link -- --apply      writes driveFileId (and real duration)
  *   npm run drive:link -- --course=react --apply     scope to one course slug
  *   npm run drive:link -- --positional               allow order-only matching
  *   npm run drive:link -- --set "React Hooks=1AbC..."   link one lesson by hand
@@ -15,7 +15,7 @@
  * against lessons with no name evidence is only done with --positional, and
  * only when the counts line up exactly.
  *
- * Only `videoFileId` and `duration` are written. Courses, progress and every
+ * Only `driveFileId` and `duration` are written. Courses, progress and every
  * other lesson field are left untouched, so this is safe to re-run.
  */
 require('dotenv').config();
@@ -173,7 +173,7 @@ async function runManualSet(spec, files) {
 
   const lessons = await Lesson.find({
     title: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-  }).select('+videoFileId');
+  });
 
   if (lessons.length === 0) {
     console.error(`\n  ✗ No lesson titled "${title}".\n`);
@@ -195,7 +195,7 @@ async function runManualSet(spec, files) {
   }
 
   const lesson = lessons[0];
-  lesson.videoFileId = file.id;
+  lesson.driveFileId = file.id;
   if (file.durationSeconds) lesson.duration = file.durationSeconds;
   await lesson.save();
 
@@ -243,7 +243,7 @@ async function main() {
 
   for (const course of courses) {
     const lessons = await Lesson.find({ courseId: course._id })
-      .select('+videoFileId')
+      
       .sort({ order: 1 });
 
     if (!lessons.length) continue;
@@ -259,7 +259,7 @@ async function main() {
       if (!match) {
         unresolved += 1;
         console.log(`   ?  ${lesson.order}. ${lesson.title}`);
-        console.log('      no confident match — set videoFileId manually');
+        console.log('      no confident match — set driveFileId manually');
         continue;
       }
 
@@ -269,7 +269,7 @@ async function main() {
           ? 'by number + name'
           : `by name (${Math.round(match.wordScore * 100)}%)`;
 
-      const alreadyLinked = lesson.videoFileId === match.file.id;
+      const alreadyLinked = lesson.driveFileId === match.file.id;
       console.log(`   ${alreadyLinked ? '=' : '→'}  ${lesson.order}. ${lesson.title}`);
       console.log(`      ${match.file.name}  [${how}]`);
 
@@ -283,7 +283,7 @@ async function main() {
       willWrite += 1;
 
       if (APPLY) {
-        lesson.videoFileId = match.file.id;
+        lesson.driveFileId = match.file.id;
         // The seeded durations were placeholders; use the real media length so
         // the curriculum shows accurate lesson times.
         if (match.file.durationSeconds) lesson.duration = match.file.durationSeconds;

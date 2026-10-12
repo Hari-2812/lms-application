@@ -1,3 +1,4 @@
+import { resolveMediaUrl } from '../../api/client';
 import { accentOf, categoryIcon } from '../../utils/course.js';
 
 /**
@@ -14,7 +15,9 @@ export default function CourseThumbnail({ course, className = '', rounded = '' }
   if (course?.thumbnail) {
     return (
       <img
-        src={course.thumbnail}
+        // An uploaded thumbnail is stored as "/uploads/..." and served by the
+        // API, which is a different origin on a split deploy.
+        src={resolveMediaUrl(course.thumbnail)}
         alt={course.title}
         loading="lazy"
         decoding="async"

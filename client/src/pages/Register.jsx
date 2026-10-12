@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowRight, Lock, Mail, User } from 'lucide-react';
 import AuthLayout from '../components/layout/AuthLayout.jsx';
 import Button from '../components/common/Button.jsx';
@@ -28,13 +28,30 @@ const initialForm = {
 export default function Register() {
   const { signUp, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
 
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  /**
+   * Where to land after signing up. Set by links that need the student back
+   * where they started — a course page's "Enrol Now" sends
+   * ?next=/courses/<id>/enrol so the account gets created and checkout
+   * continues. Restricted to in-app paths so the parameter cannot be used
+   * to bounce someone off-site.
+   */
+  const requestedNext = params.get('next') || '';
+  const destination =
+    requestedNext.startsWith('/') && !requestedNext.startsWith('//')
+      ? requestedNext
+      : '/dashboard';
+
+  // Passed along when switching to the sign-in form.
+  const nextQuery = requestedNext ? `?next=${encodeURIComponent(requestedNext)}` : '';
+
+  if (isAuthenticated) return <Navigate to={destination} replace />;
 
   const setField = (name) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -65,7 +82,7 @@ export default function Register() {
     setSubmitting(true);
     try {
       await signUp(form);
-      navigate('/dashboard', { replace: true });
+      navigate(destination, { replace: true });
     } catch (err) {
       setSubmitError(toErrorMessage(err, 'We could not create your account. Please try again.'));
     } finally {
@@ -81,7 +98,7 @@ export default function Register() {
       footer={
         <>
           Already have an account?{' '}
-          <Link to="/login" className="font-semibold text-primary-700 hover:text-primary-800">
+          <Link to={`/login${nextQuery}`} className="font-semibold text-primary-700 hover:text-primary-800">
             Sign in
           </Link>
         </>

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as authApi from '../api/client';
-import { getMe, setAuthToken } from '../api/client';
+import { getMe, setAuthToken, setUnauthorizedHandler } from '../api/client';
 
 /**
  * Single source of truth for "who is signed in".
@@ -61,8 +61,16 @@ export function AuthProvider({ children }) {
         setSession(next);
         writeStoredSession(next);
       })
-      .catch(() => {
-        /* keep the stored session; the API may just be offline */
+      .catch((err) => {
+        // A 401 here means the stored token is expired or no longer valid.
+        // Keeping it would leave the app half-signed-in: public endpoints
+        // answer, authenticated pages fail. Anything else (offline, 5xx) is
+        // worth riding out with the session intact.
+        if (err?.response?.status === 401) {
+          setAuthToken(null);
+          setSession(null);
+          writeStoredSession(null);
+        }
       })
       .finally(() => setInitialising(false));
   }, []);
@@ -122,6 +130,20 @@ export function AuthProvider({ children }) {
     setAuthToken(null);
     setSession(null);
     writeStoredSession(null);
+  }, []);
+
+  /**
+   * Any 401 from an authenticated request clears the session, so an expired
+   * token drops the student at the sign-in page instead of showing a broken
+   * page on every protected route. ProtectedRoute handles the redirect.
+   */
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAuthToken(null);
+      setSession(null);
+      writeStoredSession(null);
+    });
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   /** Local profile edits — persisted to the session until the API supports it. */

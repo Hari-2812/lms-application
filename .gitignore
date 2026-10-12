@@ -1,0 +1,3 @@
+# Database recovery dumps. These contain real user records — email addresses
+# and bcrypt password hashes — so they must never be committed.
+.recovery/

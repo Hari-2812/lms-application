@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Award, Bell, CheckCheck, ChevronDown, LogOut, Menu, Search, Settings, User } from 'lucide-react';
+import { Award, Bell, CheckCheck, ChevronDown, LayoutGrid, LogOut, Menu, Search, Settings, User } from 'lucide-react';
 import Avatar from '../common/Avatar.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotifications } from '../../context/NotificationContext.jsx';
@@ -29,6 +29,10 @@ const menuItems = [
   { to: '/certificates', label: 'Certificates', icon: Award },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
+
+// Prepended for admins, so the dashboard is reachable from any page without
+// typing the URL. AdminRoute still guards the route itself.
+const adminMenuItem = { to: '/admin', label: 'Admin dashboard', icon: LayoutGrid };
 
 /**
  * Dashboard top bar: contextual greeting on the left, search / notifications
@@ -68,7 +72,12 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
   const onNotificationClick = (notification) => {
     if (!notification.read) markRead(notification.id);
     setNotifOpen(false);
-    if (notification.courseId) navigate(`/my-courses/${notification.courseId}`);
+
+    // `link` is set by whatever raised the notification (and by the admin
+    // composer), so a certificate or payment update can land on the right
+    // page. Course-only notifications keep their original behaviour.
+    if (notification.link) navigate(notification.link);
+    else if (notification.courseId) navigate(`/my-courses/${notification.courseId}`);
   };
 
   const firstName = (student?.name || 'there').split(' ')[0];
@@ -179,7 +188,7 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
                   {notifications.length === 0 ? (
                     <p className="px-3 py-6 text-center text-sm text-ink-500">You're all caught up.</p>
                   ) : (
-                    notifications.map((notification) => (
+                    notifications.slice(0, 8).map((notification) => (
                       <button
                         key={notification.id}
                         type="button"
@@ -200,6 +209,17 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
                       </button>
                     ))
                   )}
+                </div>
+
+                <div className="border-t border-ink-100 p-1 pt-1.5">
+                  <Link
+                    to="/notifications"
+                    role="menuitem"
+                    onClick={() => setNotifOpen(false)}
+                    className="block rounded-lg px-3 py-2 text-center text-[13px] font-semibold text-primary-700 transition hover:bg-primary-50"
+                  >
+                    View all notifications
+                  </Link>
                 </div>
               </motion.div>
             )}
@@ -244,7 +264,7 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
                   <p className="truncate text-xs text-ink-500">{student?.email}</p>
                 </div>
 
-                {menuItems.map(({ to, label, icon: Icon }) => (
+                {(student?.role === 'admin' ? [adminMenuItem, ...menuItems] : menuItems).map(({ to, label, icon: Icon }) => (
                   <Link
                     key={to}
                     to={to}

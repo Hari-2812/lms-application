@@ -3,10 +3,12 @@ import {
   getCourses, createCourse, addLesson, deleteCourse, deleteLesson, updateCourse, updateLesson, getCourseLessons,
   getStudents, getStudentAccess, grantAccess, revokeAccess,
   getCourseResources, addResource, deleteResource, getCourseStats, toErrorMessage,
+  getEnrollments, confirmEnrollment, cancelEnrollment, broadcastNotification,
 } from '../api/client';
 import {
   Loader2, Plus, Link as LinkIcon, BookOpen, AlertCircle, CheckCircle2, Trash2,
   ChevronDown, ChevronUp, Pencil, X, Save, Users, Lock, Unlock, FileText, Layers, UserCheck, BarChart3,
+  Bell, IndianRupee, Send,
 } from 'lucide-react';
 import { usePageMeta } from '../components/layout/DashboardLayout.jsx';
 import StatsCard from '../components/dashboard/StatsCard.jsx';
@@ -14,6 +16,9 @@ import ProgressBar from '../components/common/ProgressBar.jsx';
 import Badge from '../components/common/Badge.jsx';
 import Button from '../components/common/Button.jsx';
 import Input from '../components/common/Input.jsx';
+import CourseContentEditor from '../components/admin/CourseContentEditor.jsx';
+import EventManager from '../components/admin/EventManager.jsx';
+import SubmissionReview from '../components/admin/SubmissionReview.jsx';
 
 export default function AdminDashboard() {
   const [courses, setCourses] = useState([]);
@@ -68,6 +73,22 @@ export default function AdminDashboard() {
   const [editingLessonId, setEditingLessonId] = useState(null);
   const [editingLessonData, setEditingLessonData] = useState(null);
 
+  // Enrolments awaiting payment confirmation
+  const [enrollments, setEnrollments] = useState([]);
+  const [loadingEnrollments, setLoadingEnrollments] = useState(true);
+  const [confirmingEnrollment, setConfirmingEnrollment] = useState({});
+
+  // Announcement composer
+  const [announcement, setAnnouncement] = useState({
+    type: 'announcement',
+    title: '',
+    message: '',
+    courseId: '',
+    studentId: '',
+    link: '',
+  });
+  const [sendingAnnouncement, setSendingAnnouncement] = useState(false);
+
   // Student access State
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
@@ -82,7 +103,19 @@ export default function AdminDashboard() {
     fetchCourses();
     fetchStudents();
     fetchCourseStats();
+    fetchEnrollments();
   }, []);
+
+  const fetchEnrollments = async () => {
+    try {
+      const data = await getEnrollments();
+      setEnrollments(data);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setLoadingEnrollments(false);
+    }
+  };
 
   const fetchCourseStats = async () => {
     try {
@@ -315,6 +348,87 @@ export default function AdminDashboard() {
     }
   };
 
+  /**
+   * Saves the full content panel for one course. Throws on failure so the
+   * editor can surface the message inline next to its own save button
+   * instead of only in the page-level banner.
+   */
+  const handleSaveCourseContent = async (courseId, payload) => {
+    try {
+      const updated = await updateCourse(courseId, payload);
+      setCourses((prev) => prev.map((c) => (c._id === courseId ? { ...c, ...updated } : c)));
+      setSuccess(`"${updated.title}" updated`);
+      setError('');
+      return updated;
+    } catch (err) {
+      throw new Error(toErrorMessage(err));
+    }
+  };
+
+  const handleConfirmEnrollment = async (enrollment) => {
+    const reference = window.prompt(
+      `Payment reference for ${enrollment.studentId?.name || 'this student'} (optional)`,
+      ''
+    );
+    // prompt() returns null on Cancel and '' when submitted empty — only the
+    // former should abort.
+    if (reference === null) return;
+
+    setConfirmingEnrollment((prev) => ({ ...prev, [enrollment._id]: true }));
+    try {
+      await confirmEnrollment(enrollment._id, reference);
+      setEnrollments((prev) =>
+        prev.map((e) => (e._id === enrollment._id ? { ...e, status: 'completed' } : e))
+      );
+      setSuccess('Payment confirmed and course access granted');
+      // The grant changes both the access counts and the enrolment chart.
+      fetchStudents();
+      fetchCourseStats();
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setConfirmingEnrollment((prev) => ({ ...prev, [enrollment._id]: false }));
+    }
+  };
+
+  const handleCancelEnrollment = async (enrollment) => {
+    if (!window.confirm('Cancel this enrolment? The student will be notified.')) return;
+
+    try {
+      await cancelEnrollment(enrollment._id);
+      setEnrollments((prev) =>
+        prev.map((e) => (e._id === enrollment._id ? { ...e, status: 'cancelled' } : e))
+      );
+      setSuccess('Enrolment cancelled');
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  };
+
+  const handleSendAnnouncement = async (e) => {
+    e.preventDefault();
+    setSendingAnnouncement(true);
+    try {
+      const result = await broadcastNotification({
+        type: announcement.type,
+        title: announcement.title || undefined,
+        message: announcement.message,
+        courseId: announcement.courseId || undefined,
+        studentId: announcement.studentId || undefined,
+        link: announcement.link || undefined,
+      });
+      setSuccess(
+        `Notification sent to ${result.targeted} ${result.targeted === 1 ? 'student' : 'students'}`
+      );
+      setAnnouncement({ type: 'announcement', title: '', message: '', courseId: '', studentId: '', link: '' });
+      setError('');
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setSendingAnnouncement(false);
+    }
+  };
+
   const startEditLesson = (lesson) => {
     setEditingLessonId(lesson._id);
     setEditingLessonData({
@@ -350,6 +464,7 @@ export default function AdminDashboard() {
   const totalGrants = students.reduce((sum, s) => sum + s.accessCount, 0);
   const maxEnrolled = Math.max(1, ...courseStats.map((s) => s.enrolledCount));
   const enrolledByCourse = new Map(courseStats.map((s) => [s.courseId, s.enrolledCount]));
+  const pendingEnrollments = enrollments.filter((e) => e.status === 'pending');
 
   return (
     <div className="space-y-6">
@@ -367,12 +482,43 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- Overview stats --------------------------------------------- */}
+      {/* --- Overview stats ---------------------------------------------
+          Each figure links down to the section that manages it, so the
+          numbers are a way into the work rather than just a readout. */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatsCard icon={BookOpen} label="Total courses" value={courses.length} tone="primary" />
-        <StatsCard icon={Users} label="Total students" value={students.length} tone="success" />
-        <StatsCard icon={Layers} label="Total lessons" value={totalLessons} tone="warning" />
-        <StatsCard icon={UserCheck} label="Access grants" value={totalGrants} tone="neutral" />
+        <StatsCard
+          icon={BookOpen}
+          label="Total courses"
+          value={courses.length}
+          tone="primary"
+          to="#manage-courses"
+        />
+        <StatsCard
+          icon={Users}
+          label="Total students"
+          value={students.length}
+          tone="success"
+          to="#student-access"
+        />
+        <StatsCard
+          icon={Layers}
+          label="Total lessons"
+          value={totalLessons}
+          tone="warning"
+          to="#manage-courses"
+        />
+        <StatsCard
+          icon={UserCheck}
+          label="Access grants"
+          value={totalGrants}
+          hint={
+            pendingEnrollments.length
+              ? `${pendingEnrollments.length} payment${pendingEnrollments.length === 1 ? '' : 's'} awaiting confirmation`
+              : undefined
+          }
+          tone="neutral"
+          to="#enrolments"
+        />
       </section>
 
       {/* --- Enrollment chart --------------------------------------------- */}
@@ -409,6 +555,205 @@ export default function AdminDashboard() {
             ))}
           </div>
         )}
+      </section>
+
+      {/* --- Enrolments awaiting payment confirmation --------------------- */}
+      {/* scroll-mt clears the sticky dashboard header when the overview
+          cards link down to these sections. */}
+      <section id="enrolments" className="card scroll-mt-20 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 p-6">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
+              <IndianRupee className="h-4 w-4 text-primary-600" aria-hidden="true" />
+              Enrolments &amp; payments
+            </h2>
+            <p className="mt-1 text-[13px] text-ink-500">
+              Confirming a payment grants the student access to the course.
+            </p>
+          </div>
+          {pendingEnrollments.length > 0 && (
+            <Badge tone="warning">{pendingEnrollments.length} awaiting confirmation</Badge>
+          )}
+        </div>
+
+        {loadingEnrollments ? (
+          <div className="flex items-center gap-2 p-6 text-sm text-ink-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading enrolments...
+          </div>
+        ) : enrollments.length === 0 ? (
+          <p className="p-6 text-sm text-ink-500">
+            No enrolments yet. They appear here when a student checks out from a course page.
+          </p>
+        ) : (
+          <div className="divide-y divide-ink-100">
+            {enrollments.slice(0, 25).map((enrollment) => (
+              <div
+                key={enrollment._id}
+                className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-ink-900">
+                    {enrollment.studentId?.name || 'Unknown student'}
+                    <span className="font-normal text-ink-500"> · {enrollment.courseId?.title || 'Deleted course'}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-ink-500">
+                    {enrollment.amount > 0
+                      ? `₹${Number(enrollment.amount).toLocaleString('en-IN')}`
+                      : 'Free'}
+                    {enrollment.method ? ` · ${enrollment.method}` : ''}
+                    {' · '}
+                    {new Date(enrollment.createdAt).toLocaleDateString('en-GB', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                    {enrollment.reference ? ` · ref ${enrollment.reference}` : ''}
+                  </p>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  {enrollment.status === 'pending' && <Badge tone="warning">Pending</Badge>}
+                  {enrollment.status === 'completed' && <Badge tone="success">Confirmed</Badge>}
+                  {enrollment.status === 'cancelled' && <Badge tone="neutral">Cancelled</Badge>}
+
+                  {enrollment.status === 'pending' && (
+                    <>
+                      <Button
+                        size="sm"
+                        loading={confirmingEnrollment[enrollment._id]}
+                        disabled={confirmingEnrollment[enrollment._id]}
+                        onClick={() => handleConfirmEnrollment(enrollment)}
+                      >
+                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                        Confirm
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleCancelEnrollment(enrollment)}
+                      >
+                        Cancel
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* --- Upcoming events ---------------------------------------------- */}
+      <EventManager courses={courses} />
+
+      {/* --- Task submission review --------------------------------------- */}
+      <SubmissionReview />
+
+      {/* --- Notification composer ---------------------------------------- */}
+      <section className="card p-6">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
+          <Bell className="h-4 w-4 text-primary-600" aria-hidden="true" />
+          Send a notification
+        </h2>
+        <p className="mt-1 text-[13px] text-ink-500">
+          Goes straight to the bell icon in the student dashboard, in real time.
+        </p>
+
+        <form onSubmit={handleSendAnnouncement} className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div>
+            <label className="field-label" htmlFor="notification-type">
+              Type
+            </label>
+            <select
+              id="notification-type"
+              className="field-input"
+              value={announcement.type}
+              onChange={(e) => setAnnouncement({ ...announcement, type: e.target.value })}
+            >
+              <option value="announcement">Announcement</option>
+              <option value="course_update">Course update</option>
+              <option value="task">Task / assignment</option>
+              <option value="event">Upcoming event</option>
+              <option value="certificate">Certificate update</option>
+            </select>
+          </div>
+
+          <Input
+            label="Title"
+            value={announcement.title}
+            onChange={(e) => setAnnouncement({ ...announcement, title: e.target.value })}
+            placeholder="Leave empty to use the type's default"
+          />
+
+          <div className="lg:col-span-2">
+            <label className="field-label" htmlFor="notification-message">
+              Message
+            </label>
+            <textarea
+              id="notification-message"
+              required
+              className="field-input min-h-[90px] resize-y"
+              value={announcement.message}
+              onChange={(e) => setAnnouncement({ ...announcement, message: e.target.value })}
+              placeholder="What do you want students to know?"
+            />
+          </div>
+
+          <div>
+            <label className="field-label" htmlFor="notification-course">
+              Course (optional)
+            </label>
+            <select
+              id="notification-course"
+              className="field-input"
+              value={announcement.courseId}
+              onChange={(e) => setAnnouncement({ ...announcement, courseId: e.target.value, studentId: '' })}
+            >
+              <option value="">All students</option>
+              {courses.map((course) => (
+                <option key={course._id} value={course._id}>
+                  Students with access to {course.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="field-label" htmlFor="notification-student">
+              Single student (optional)
+            </label>
+            <select
+              id="notification-student"
+              className="field-input"
+              value={announcement.studentId}
+              onChange={(e) => setAnnouncement({ ...announcement, studentId: e.target.value })}
+            >
+              <option value="">—</option>
+              {students.map((student) => (
+                <option key={student._id} value={student._id}>
+                  {student.name} ({student.email})
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-ink-500">Overrides the course selection.</p>
+          </div>
+
+          <Input
+            label="Link (optional)"
+            value={announcement.link}
+            onChange={(e) => setAnnouncement({ ...announcement, link: e.target.value })}
+            placeholder="/certificates"
+            hint="An in-app path. Clicking the notification takes the student here."
+            className="lg:col-span-2"
+          />
+
+          <div className="lg:col-span-2">
+            <Button type="submit" loading={sendingAnnouncement} disabled={sendingAnnouncement}>
+              <Send className="h-4 w-4" aria-hidden="true" />
+              Send notification
+            </Button>
+          </div>
+        </form>
       </section>
 
       {/* --- Create course / add lesson ----------------------------------- */}
@@ -594,7 +939,7 @@ export default function AdminDashboard() {
       </section>
 
       {/* --- Manage courses & lessons --------------------------------------- */}
-      <section className="card overflow-hidden">
+      <section id="manage-courses" className="card scroll-mt-20 overflow-hidden">
         <div className="border-b border-ink-100 p-6">
           <h2 className="text-base font-semibold text-ink-900">Manage courses &amp; lessons</h2>
         </div>
@@ -695,6 +1040,15 @@ export default function AdminDashboard() {
 
                 {expandedCourseId === course._id && (
                   <div className="space-y-5 border-t border-ink-100 bg-surface-muted px-6 py-5">
+                    {/* Thumbnail, intro video, formatted copy, package and
+                        pricing — everything the student-facing Browse
+                        Courses and course details pages read. */}
+                    <CourseContentEditor
+                      course={course}
+                      onSave={handleSaveCourseContent}
+                      onSaved={fetchCourseStats}
+                    />
+
                     <div>
                       <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">Lessons</h4>
                       {loadingLessons[course._id] ? (
@@ -838,7 +1192,7 @@ export default function AdminDashboard() {
       </section>
 
       {/* --- Students & course access ---------------------------------------- */}
-      <section className="card overflow-hidden">
+      <section id="student-access" className="card scroll-mt-20 overflow-hidden">
         <div className="border-b border-ink-100 p-6">
           <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
             <Users className="h-4 w-4 text-primary-600" aria-hidden="true" />

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowRight,
+  Award,
   BarChart3,
   BookOpen,
   Check,
@@ -9,6 +10,7 @@ import {
   Clock,
   Globe,
   Heart,
+  Hourglass,
   Infinity as InfinityIcon,
   Lock,
   ShieldCheck,
@@ -20,15 +22,18 @@ import Avatar from '../components/common/Avatar.jsx';
 import Badge from '../components/common/Badge.jsx';
 import Button from '../components/common/Button.jsx';
 import Rating from '../components/common/Rating.jsx';
+import RichText from '../components/common/RichText.jsx';
 import Tabs from '../components/common/Tabs.jsx';
 import CourseProgress from '../components/courses/CourseProgress.jsx';
 import CourseThumbnail from '../components/courses/CourseThumbnail.jsx';
 import Curriculum from '../components/courses/Curriculum.jsx';
+import IntroVideo from '../components/courses/IntroVideo.jsx';
 import { ErrorState, LoadingState } from '../components/States.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import useWishlist from '../hooks/useWishlist.js';
 import { compactNumber, formatHours, formatPrice } from '../utils/course.js';
 import { formatDuration } from '../utils/format.js';
+import { hasRichText } from '../utils/sanitize.js';
 
 const TABS = [
   { value: 'overview', label: 'Overview' },
@@ -106,25 +111,59 @@ export default function CourseDetails() {
   const saved = isSaved(course._id);
   const locked = isAuthenticated && course.hasAccess === false;
 
+  // A locked course the student has already paid for is waiting on the admin
+  // to confirm the payment, which is a very different message from "you
+  // need to enrol".
+  const awaitingPayment = locked && course.enrollmentStatus === 'pending';
+
   const facts = [
     { icon: BookOpen, label: `${course.lessonCount} lessons` },
     { icon: Clock, label: formatHours(course.hours) || formatDuration(totalSeconds) },
     { icon: BarChart3, label: course.level },
-    { icon: Globe, label: 'Tamil' },
+    { icon: Globe, label: course.language || 'Tamil' },
     { icon: InfinityIcon, label: 'Lifetime access' },
-  ].filter((fact) => fact.label);
+    course.certificateIncluded !== false
+      ? { icon: Award, label: 'Certificate of completion' }
+      : null,
+  ].filter((fact) => fact?.label);
+
+  /**
+   * What the package includes. Falls back to facts derived from the course
+   * record when the admin has not filled in a feature list, so the panel is
+   * never empty.
+   */
+  const features =
+    course.features?.length > 0
+      ? course.features
+      : [
+          `${course.lessonCount} on-demand video ${course.lessonCount === 1 ? 'lesson' : 'lessons'}`,
+          'Lifetime access on any device',
+          'Downloadable study material',
+          ...(course.certificateIncluded !== false ? ['Certificate of completion'] : []),
+        ];
+
+  const discount =
+    course.originalPrice > course.price
+      ? Math.round(((course.originalPrice - course.price) / course.originalPrice) * 100)
+      : 0;
 
   /* The primary action changes with the student's relationship to the course. */
   const primaryAction = !isAuthenticated
-    ? { to: '/register', label: 'Enrol Now' }
-    : locked
+    ? // Signed-out visitors register first, then come back to this course.
+      { to: `/register?next=${encodeURIComponent(`/courses/${course._id}/enrol`)}`, label: 'Enrol Now' }
+    : awaitingPayment
       ? null
-      : nextLesson
+      : locked
         ? {
-            to: `/learn/${course._id}/${nextLesson._id}`,
-            label: complete ? 'Review Course' : started ? 'Continue Learning' : 'Start Course',
+            to: `/courses/${course._id}/enrol`,
+            label: course.price > 0 ? 'Proceed to Payment' : 'Enrol for Free',
           }
-        : { to: '/my-courses', label: 'Back to My Courses' };
+        : nextLesson
+          ? {
+              to: `/learn/${course._id}/${nextLesson._id}`,
+              label: complete ? 'Review Course' : started ? 'Continue Learning' : 'Start Course',
+            }
+          : { to: '/my-courses', label: 'Back to My Courses' };
 
   return (
     <div className="space-y-6">
@@ -148,7 +187,7 @@ export default function CourseDetails() {
             {course.title}
           </Title>
           <p className="relative mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-300">
-            {course.description}
+            {course.summary || course.description}
           </p>
 
           <div className="relative mt-6 flex flex-wrap items-center gap-x-6 gap-y-3 text-[13px] text-ink-300">
@@ -178,9 +217,34 @@ export default function CourseDetails() {
 
           {tab === 'overview' && (
             <div className="space-y-6">
+              {course.introVideoUrl && (
+                <section className="card overflow-hidden p-1.5">
+                  <IntroVideo course={course} />
+                </section>
+              )}
+
               <section className="card p-6">
                 <h2 className="text-base font-semibold text-ink-900">About this course</h2>
-                <p className="mt-3 text-sm leading-relaxed text-ink-600">{course.description}</p>
+                {/* The admin's formatted copy wins when there is any; the
+                    plain description is the fallback for courses that
+                    predate the rich text editor. */}
+                {hasRichText(course.descriptionHtml) ? (
+                  <RichText html={course.descriptionHtml} className="mt-3" />
+                ) : (
+                  <p className="mt-3 text-sm leading-relaxed text-ink-600">{course.description}</p>
+                )}
+              </section>
+
+              <section className="card p-6">
+                <h2 className="text-base font-semibold text-ink-900">What&apos;s included</h2>
+                <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {features.map((feature) => (
+                    <li key={feature} className="flex gap-2.5 text-sm leading-relaxed text-ink-700">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
               </section>
 
               {course.outcomes?.length > 0 && (
@@ -229,9 +293,21 @@ export default function CourseDetails() {
               {locked ? (
                 <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
                   <Lock className="h-8 w-8 text-ink-300" aria-hidden="true" />
-                  <p className="max-w-sm text-sm text-ink-600">
-                    Your access to this course is restricted. Contact your admin to get it unlocked.
-                  </p>
+                  {awaitingPayment ? (
+                    <p className="max-w-sm text-sm text-ink-600">
+                      The full lesson list unlocks once your payment is confirmed.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="max-w-sm text-sm text-ink-600">
+                        Enrol in this course to unlock all {course.lessonCount} lessons.
+                      </p>
+                      <Button to={`/courses/${course._id}/enrol`} size="sm">
+                        {course.price > 0 ? 'Proceed to Payment' : 'Enrol for Free'}
+                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               ) : (
                 <Curriculum
@@ -295,15 +371,52 @@ export default function CourseDetails() {
             </div>
 
             <div className="p-5">
-              {locked ? (
-                <div className="mb-5 flex items-center gap-2.5 rounded-lg bg-ink-50 p-3 text-[13px] font-medium text-ink-600">
-                  <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  Access restricted — contact your admin
+              {awaitingPayment ? (
+                <div className="mb-5 flex items-start gap-2.5 rounded-lg bg-amber-50 p-3 text-[13px] font-medium text-amber-800">
+                  <Hourglass className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>
+                    Payment received — we&apos;re confirming it now. The course unlocks as soon as
+                    that is done.
+                  </span>
+                </div>
+              ) : locked ? (
+                /* Not enrolled yet: the panel becomes the price and the
+                   route into checkout. */
+                <div className="mb-5">
+                  <div className="flex flex-wrap items-baseline gap-2.5">
+                    <p className="text-2xl font-bold text-ink-900">{formatPrice(course.price)}</p>
+                    {discount > 0 && (
+                      <>
+                        <p className="text-base text-ink-400 line-through">
+                          {formatPrice(course.originalPrice)}
+                        </p>
+                        <Badge tone="success">{discount}% off</Badge>
+                      </>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-[13px] text-ink-500">
+                    One-time payment · lifetime access
+                  </p>
                 </div>
               ) : isAuthenticated ? (
                 <CourseProgress course={course} className="mb-5" />
               ) : (
-                <p className="mb-5 text-2xl font-bold text-ink-900">{formatPrice(course.price)}</p>
+                <div className="mb-5">
+                  <div className="flex flex-wrap items-baseline gap-2.5">
+                    <p className="text-2xl font-bold text-ink-900">{formatPrice(course.price)}</p>
+                    {discount > 0 && (
+                      <>
+                        <p className="text-base text-ink-400 line-through">
+                          {formatPrice(course.originalPrice)}
+                        </p>
+                        <Badge tone="success">{discount}% off</Badge>
+                      </>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-[13px] text-ink-500">
+                    One-time payment · lifetime access
+                  </p>
+                </div>
               )}
 
               {primaryAction ? (
@@ -313,9 +426,22 @@ export default function CourseDetails() {
                 </Button>
               ) : (
                 <Button size="lg" fullWidth disabled>
-                  <Lock className="h-4 w-4" aria-hidden="true" />
-                  Access Restricted
+                  <Hourglass className="h-4 w-4" aria-hidden="true" />
+                  Awaiting Confirmation
                 </Button>
+              )}
+
+              {/* The package contents, repeated here so the figure and what
+                  it buys sit together at the point of decision. */}
+              {locked && !awaitingPayment && (
+                <ul className="mt-5 space-y-2 border-t border-ink-100 pt-5">
+                  {features.slice(0, 5).map((feature) => (
+                    <li key={feature} className="flex gap-2 text-[13px] leading-relaxed text-ink-700">
+                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
               )}
 
               <button

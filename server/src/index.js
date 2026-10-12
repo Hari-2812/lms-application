@@ -8,21 +8,12 @@ const { connectDB } = require('./config/db');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const driveService = require('./services/googleDriveService');
 const { initSocket } = require('./services/socketService');
+const { UPLOAD_ROOT } = require('./middleware/upload');
 const routes = require('./routes');
 
 const PORT = process.env.PORT || 5000;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
-/**
- * CORS allowlist.
- *
- * CLIENT_URL is an optional comma-separated list of exact origins, e.g.
- *   CLIENT_URL=https://app.example.com,https://admin.example.com
- *
- * In development we additionally accept any localhost port, because Vite
- * moves to 5174/5175/... whenever 5173 is already taken. Pinning a single
- * port there just breaks the moment a previous dev server is still running.
- */
 const ALLOWED_ORIGINS = (process.env.CLIENT_URL || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -32,8 +23,6 @@ const ALLOWED_ORIGINS = (process.env.CLIENT_URL || '')
 const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 function isOriginAllowed(origin) {
-  // No Origin header: same-origin fetches, the Vite proxy, curl, native apps.
-  // These are not browser cross-origin requests, so there is nothing to police.
   if (!origin) return true;
   if (ALLOWED_ORIGINS.includes(origin)) return true;
   return !IS_PRODUCTION && LOCALHOST_ORIGIN.test(origin);
@@ -43,14 +32,34 @@ const app = express();
 
 app.use(
   cors({
-    // `false` simply omits the header, so the browser blocks it — cleaner than
-    // throwing, which would surface as a 500 instead of a CORS error.
     origin: (origin, callback) => callback(null, isOriginAllowed(origin)),
-    // The browser needs these to seek an HTML5 video across origins.
     exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length'],
   })
 );
 app.use(express.json());
+
+/**
+ * Admin-uploaded course thumbnails.
+ *
+ * Read-only and public: a thumbnail appears on the public catalogue, so it
+ * has to be fetchable without a token. Only raster image types can ever be
+ * written here (see middleware/upload.js), and `nosniff` stops a browser
+ * from reinterpreting one as HTML or script.
+ */
+app.use(
+  '/uploads',
+  express.static(UPLOAD_ROOT, {
+    index: false, // no directory listings
+    dotfiles: 'deny',
+    maxAge: '7d',
+    setHeaders: (res) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      // Belt and braces: even if something non-image lands here, this makes
+      // the browser download it rather than execute it in our origin.
+      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'");
+    },
+  })
+);
 
 app.use('/api', routes);
 app.use(notFoundHandler);

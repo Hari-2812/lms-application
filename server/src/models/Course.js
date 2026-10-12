@@ -24,6 +24,28 @@ const courseSchema = new mongoose.Schema(
     outcomes: { type: [String], default: [] }, // "What you'll learn" bullets
     requirements: { type: [String], default: [] },
 
+    // --- admin-managed Browse Courses content -----------------------------
+    // `summary` is the one-or-two line pitch used on cards and in the
+    // package header; `descriptionHtml` is the admin's formatted long copy
+    // (bold / italic / font family / font size), sanitised on write by
+    // utils/sanitizeHtml and again in the browser before it is rendered.
+    summary: { type: String, default: '' },
+    descriptionHtml: { type: String, default: '' },
+
+    // A public, shareable preview reel — unlike lesson videos this one is
+    // meant to be seen before enrolling, so a plain URL is fine here.
+    introVideoUrl: { type: String, default: '' },
+
+    // --- package / pricing details shown on the course details page -------
+    features: { type: [String], default: [] }, // what the package includes
+    originalPrice: { type: Number, default: 0 }, // struck through when > price
+    language: { type: String, default: '' },
+    certificateIncluded: { type: Boolean, default: true },
+
+    // Unpublished courses stay out of the student-facing catalogue but
+    // remain visible and editable in the admin dashboard.
+    published: { type: Boolean, default: true },
+
     // Marks the course that is wired to real private Google Drive files.
     hasDriveVideos: { type: Boolean, default: false },
 

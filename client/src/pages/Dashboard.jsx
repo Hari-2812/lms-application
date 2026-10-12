@@ -58,6 +58,11 @@ export default function Dashboard() {
   if (status === 'loading') return <DashboardSkeleton />;
   if (status === 'error') return <ErrorState message={error} />;
 
+  /**
+   * Every figure links to the page that holds its detail, so a student can
+   * click straight from the number to the records behind it. The `?filter=`
+   * values match the My Courses tabs — see pages/MyCourses.jsx.
+   */
   const stats = [
     {
       icon: BookOpen,
@@ -65,6 +70,7 @@ export default function Dashboard() {
       value: String(courses.length).padStart(2, '0'),
       hint: `${startedCourses.length} started`,
       tone: 'primary',
+      to: '/my-courses',
     },
     {
       icon: GraduationCap,
@@ -72,6 +78,7 @@ export default function Dashboard() {
       value: String(completedCourses.length).padStart(2, '0'),
       tone: 'success',
       progress: courses.length ? (completedCourses.length / courses.length) * 100 : 0,
+      to: '/my-courses?filter=completed',
     },
     {
       icon: Clock,
@@ -79,6 +86,7 @@ export default function Dashboard() {
       value: formatWatchTime(watchedSeconds),
       hint: `${completedLessonCount} of ${totalLessons} lessons done`,
       tone: 'warning',
+      to: '/progress',
     },
     {
       icon: Award,
@@ -86,6 +94,7 @@ export default function Dashboard() {
       value: String(completedCourses.length).padStart(2, '0'),
       hint: completedCourses.length ? 'Ready to download' : 'Finish a course to earn one',
       tone: 'neutral',
+      to: '/certificates',
     },
   ];
 

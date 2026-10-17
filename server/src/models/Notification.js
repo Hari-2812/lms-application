@@ -13,6 +13,8 @@ const notificationSchema = new mongoose.Schema(
         'announcement',
         // Course content the admin changed after students enrolled.
         'course_update',
+        // A course newly added to the catalogue.
+        'new_course',
         // Certificate issued / sample generated.
         'certificate',
         // Assignment or action the student needs to take.
@@ -21,6 +23,14 @@ const notificationSchema = new mongoose.Schema(
         'event',
         // Enrolment and payment status changes.
         'payment',
+        // --- admin-facing ---
+        'learner_registered',
+        'enrollment',
+        // A learner handed in work that needs reviewing.
+        'submission',
+        // --- learner-facing ---
+        // A submission was reviewed (feedback and score).
+        'task_review',
       ],
       required: true,
     },

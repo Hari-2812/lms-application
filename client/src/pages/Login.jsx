@@ -17,7 +17,7 @@ const points = [
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Login() {
-  const { signIn, isAuthenticated } = useAuth();
+  const { signIn, isAuthenticated, student } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [params] = useSearchParams();
@@ -42,9 +42,12 @@ export default function Login() {
   // Passed along when switching to the sign-up form.
   const nextQuery = requestedNext ? `?next=${encodeURIComponent(requestedNext)}` : '';
 
+  // Staff land in the admin panel unless they were heading somewhere specific.
+  const landingFor = (user) => (user?.role === 'admin' && destination === '/dashboard' ? '/admin' : destination);
+
   // Send an already-signed-in student straight through.
   if (isAuthenticated) {
-    return <Navigate to={destination} replace />;
+    return <Navigate to={landingFor(student)} replace />;
   }
 
   const setField = (name) => (event) => {
@@ -69,8 +72,8 @@ export default function Login() {
 
     setSubmitting(true);
     try {
-      await signIn(form);
-      navigate(destination, { replace: true });
+      const signedIn = await signIn(form);
+      navigate(landingFor(signedIn), { replace: true });
     } catch (err) {
       setSubmitError(toErrorMessage(err, 'We could not sign you in. Check your details and try again.'));
     } finally {
@@ -132,7 +135,7 @@ export default function Login() {
         <div className="flex items-center justify-between gap-4">
           <Checkbox label="Remember me" checked={form.remember} onChange={setField('remember')} />
           <Link
-            to="/login"
+            to="/forgot-password"
             className="text-sm font-medium text-primary-700 hover:text-primary-800"
           >
             Forgot password?
@@ -150,11 +153,6 @@ export default function Login() {
         here — adding one that cannot complete a sign-in would be misleading.
         Wire it up alongside /api/auth/google when that route exists.
       */}
-      <p className="mt-6 rounded-lg bg-surface-muted p-3.5 text-[13px] leading-relaxed text-ink-600">
-        <strong className="font-semibold text-ink-800">Demo build:</strong> the API currently uses
-        mocked authentication, so any valid-looking email and password signs you in as the demo
-        student.
-      </p>
     </AuthLayout>
   );
 }

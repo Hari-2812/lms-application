@@ -12,20 +12,38 @@ const enrollmentController = require('../controllers/enrollmentController');
 const uploadController = require('../controllers/uploadController');
 const eventController = require('../controllers/eventController');
 const submissionController = require('../controllers/submissionController');
-const { requireAuth, optionalAuth, requireAdmin } = require('../middleware/authMiddleware');
+const learnerController = require('../controllers/learnerController');
+const paymentController = require('../controllers/paymentController');
+const assignmentController = require('../controllers/assignmentController');
+const settingsController = require('../controllers/settingsController');
+const teamController = require('../controllers/teamController');
+const insightsController = require('../controllers/adminInsightsController');
+const { requireAuth, optionalAuth, requireAdmin, requireSuperAdmin } = require('../middleware/authMiddleware');
 const { requireCourseAccess, resolveCourseId } = require('../middleware/courseAccess');
 const { uploadThumbnail } = require('../middleware/upload');
 const driveService = require('../services/googleDriveService');
 
 const router = express.Router();
 
+/**
+ * Two staff guards:
+ *   staff — any admin account, including Support / Reviewer
+ *   superAdmin — money, access, content, settings and the team
+ */
+const staff = [requireAuth, requireAdmin];
+const superAdmin = [requireAuth, requireSuperAdmin];
+
 // --- auth ---
 router.post('/auth/register', authController.register);
 router.post('/auth/login', authController.login);
 router.post('/auth/logout', authController.logout);
+router.post('/auth/forgot-password', authController.forgotPassword);
+router.post('/auth/reset-password', authController.resetPassword);
 
 // --- me ---
 router.get('/me', requireAuth, authController.getMe);
+router.put('/me', requireAuth, authController.updateMe);
+router.put('/me/password', requireAuth, authController.changePassword);
 
 // --- health / architecture panel ---
 router.get('/health', (_req, res) => {
@@ -42,47 +60,66 @@ router.get('/health', (_req, res) => {
   });
 });
 
+// --- platform settings anyone may read (branding, how to pay) ---
+router.get('/settings/public', settingsController.getPublic);
+
 // --- courses (publicly browsable; `hasAccess` reflects whoever, if anyone, is signed in) ---
 router.get('/courses', optionalAuth, courseController.listCourses);
 router.get('/courses/:id', optionalAuth, courseController.getCourse);
 
 // --- admin courses ---
-router.post('/admin/courses', requireAuth, requireAdmin, adminController.createCourse);
-router.put('/admin/courses/:id', requireAuth, requireAdmin, adminController.updateCourse);
-router.delete('/admin/courses/:id', requireAuth, requireAdmin, adminController.deleteCourse);
+router.post('/admin/courses', ...superAdmin, adminController.createCourse);
+router.put('/admin/courses/:id', ...superAdmin, adminController.updateCourse);
+router.delete('/admin/courses/:id', ...superAdmin, adminController.deleteCourse);
 
-// --- admin: overview stats ---
-router.get('/admin/courses/stats', requireAuth, requireAdmin, adminController.getCourseStats);
+// --- admin: overview ---
+router.get('/admin/courses/stats', ...staff, adminController.getCourseStats);
+router.get('/admin/overview', ...staff, insightsController.getOverview);
 
-// --- admin: enrolments / payment confirmation ---
-router.get('/admin/enrollments', requireAuth, requireAdmin, enrollmentController.listAll);
-router.post('/admin/enrollments/:id/confirm', requireAuth, requireAdmin, enrollmentController.confirm);
-router.post('/admin/enrollments/:id/cancel', requireAuth, requireAdmin, enrollmentController.cancel);
+// --- admin: learners ---
+router.get('/admin/learners', ...staff, learnerController.listLearners);
+router.get('/admin/learners/:id', ...staff, learnerController.getLearner);
+router.patch('/admin/learners/:id/status', ...superAdmin, learnerController.setLearnerStatus);
+router.post('/admin/learners/:id/enrol', ...superAdmin, learnerController.enrolLearner);
+router.delete('/admin/learners/:id/enrol/:courseId', ...superAdmin, learnerController.unenrolLearner);
+router.post('/admin/users/:id/reset-password', ...superAdmin, learnerController.resetUserPassword);
 
-// --- admin: per-student course access ---
-router.get('/admin/students', requireAuth, requireAdmin, adminController.listStudents);
-router.get('/admin/students/:studentId/access', requireAuth, requireAdmin, adminController.getStudentAccess);
-router.post('/admin/access', requireAuth, requireAdmin, adminController.grantAccess);
-router.delete('/admin/access', requireAuth, requireAdmin, adminController.revokeAccess);
-router.post('/admin/access/bulk', requireAuth, requireAdmin, adminController.bulkGrantAccess);
+// --- admin: per-student course access (used by the notification composer) ---
+router.get('/admin/students', ...staff, adminController.listStudents);
+router.get('/admin/students/:studentId/access', ...staff, adminController.getStudentAccess);
+router.post('/admin/access', ...superAdmin, adminController.grantAccess);
+router.delete('/admin/access', ...superAdmin, adminController.revokeAccess);
+router.post('/admin/access/bulk', ...superAdmin, adminController.bulkGrantAccess);
 
-// --- admin: image uploads (course thumbnails) ---
-router.post(
-  '/admin/uploads/image',
-  requireAuth,
-  requireAdmin,
-  uploadThumbnail,
-  uploadController.uploadImage
-);
-router.delete(
-  '/admin/uploads/thumbnails/:filename',
-  requireAuth,
-  requireAdmin,
-  uploadController.deleteImage
-);
+// --- admin: payments ---
+// report.pdf is declared before /:id routes so the literal path wins.
+router.get('/admin/payments', ...staff, paymentController.listPayments);
+router.get('/admin/payments/report.pdf', ...staff, paymentController.downloadReport);
+router.patch('/admin/payments/:id', ...superAdmin, paymentController.updatePayment);
+router.post('/admin/payments/:id/confirm', ...superAdmin, paymentController.confirmPayment);
+router.post('/admin/payments/:id/fail', ...superAdmin, paymentController.failPayment);
+router.post('/admin/payments/:id/cancel', ...superAdmin, paymentController.cancelPayment);
+router.post('/admin/payments/:id/retry', ...superAdmin, paymentController.retryPayment);
+router.get('/admin/enrollments', ...staff, enrollmentController.listAll);
 
-// --- admin: announcements ---
-router.post('/admin/notifications', requireAuth, requireAdmin, adminController.broadcastNotification);
+// --- admin: image uploads (course thumbnails, platform logo) ---
+router.post('/admin/uploads/image', ...superAdmin, uploadThumbnail, uploadController.uploadImage);
+router.delete('/admin/uploads/thumbnails/:filename', ...superAdmin, uploadController.deleteImage);
+
+// --- admin: notifications composer ---
+router.post('/admin/notifications', ...staff, adminController.broadcastNotification);
+
+// --- admin: certificates register ---
+router.get('/admin/certificates', ...staff, insightsController.listCertificates);
+
+// --- admin: settings, team, activity log ---
+router.get('/admin/settings', ...superAdmin, settingsController.getAdmin);
+router.put('/admin/settings', ...superAdmin, settingsController.updateAdmin);
+router.post('/admin/settings/test-email', ...superAdmin, settingsController.sendTestEmail);
+router.get('/admin/team', ...superAdmin, teamController.listTeam);
+router.post('/admin/team', ...superAdmin, teamController.addMember);
+router.patch('/admin/team/:id', ...superAdmin, teamController.updateMember);
+router.get('/admin/activity', ...superAdmin, insightsController.listActivity);
 
 // --- lessons (require an active access grant for the lesson's course) ---
 router.get(
@@ -99,9 +136,9 @@ router.get(
 );
 
 // --- admin lessons ---
-router.post('/admin/lessons', requireAuth, requireAdmin, adminController.addLesson);
-router.put('/admin/lessons/:id', requireAuth, requireAdmin, adminController.updateLesson);
-router.delete('/admin/lessons/:id', requireAuth, requireAdmin, adminController.deleteLesson);
+router.post('/admin/lessons', ...superAdmin, adminController.addLesson);
+router.put('/admin/lessons/:id', ...superAdmin, adminController.updateLesson);
+router.delete('/admin/lessons/:id', ...superAdmin, adminController.deleteLesson);
 
 // --- resources (study materials / PDFs) — same access grant as lessons ---
 router.get(
@@ -112,9 +149,9 @@ router.get(
 );
 
 // --- admin resources ---
-router.post('/admin/resources', requireAuth, requireAdmin, adminController.addResource);
-router.put('/admin/resources/:id', requireAuth, requireAdmin, adminController.updateResource);
-router.delete('/admin/resources/:id', requireAuth, requireAdmin, adminController.deleteResource);
+router.post('/admin/resources', ...superAdmin, adminController.addResource);
+router.put('/admin/resources/:id', ...superAdmin, adminController.updateResource);
+router.delete('/admin/resources/:id', ...superAdmin, adminController.deleteResource);
 
 // --- video (the demo's core endpoint) ---
 router.get(
@@ -149,10 +186,10 @@ router.get('/events', optionalAuth, eventController.listEvents);
 router.get('/events/:id', optionalAuth, eventController.getEvent);
 
 // --- admin: events ---
-router.get('/admin/events', requireAuth, requireAdmin, eventController.listAllEvents);
-router.post('/admin/events', requireAuth, requireAdmin, eventController.createEvent);
-router.put('/admin/events/:id', requireAuth, requireAdmin, eventController.updateEvent);
-router.delete('/admin/events/:id', requireAuth, requireAdmin, eventController.deleteEvent);
+router.get('/admin/events', ...staff, eventController.listAllEvents);
+router.post('/admin/events', ...superAdmin, eventController.createEvent);
+router.put('/admin/events/:id', ...superAdmin, eventController.updateEvent);
+router.delete('/admin/events/:id', ...superAdmin, eventController.deleteEvent);
 
 // --- task submissions ---
 // The category list is public so the form can render before anything is sent.
@@ -161,9 +198,16 @@ router.get('/submissions/mine', requireAuth, submissionController.listMine);
 router.post('/submissions', requireAuth, submissionController.createSubmission);
 router.delete('/submissions/:id', requireAuth, submissionController.withdraw);
 
-// --- admin: submission review queue ---
-router.get('/admin/submissions', requireAuth, requireAdmin, submissionController.listAll);
-router.patch('/admin/submissions/:id', requireAuth, requireAdmin, submissionController.review);
+// --- assignments (tasks with a due date) ---
+router.get('/assignments', requireAuth, assignmentController.listForLearner);
+router.get('/admin/assignments', ...staff, assignmentController.listAll);
+router.post('/admin/assignments', ...superAdmin, assignmentController.create);
+router.put('/admin/assignments/:id', ...superAdmin, assignmentController.update);
+router.delete('/admin/assignments/:id', ...superAdmin, assignmentController.remove);
+
+// --- admin: submission review queue (Support / Reviewer can review) ---
+router.get('/admin/submissions', ...staff, submissionController.listAll);
+router.patch('/admin/submissions/:id', ...staff, submissionController.review);
 
 // --- certificates ---
 // `verify` is public on purpose: a certificate serial is meant to be
@@ -179,5 +223,12 @@ router.delete('/certificates/:id', requireAuth, certificateController.remove);
 // --- enrolment / checkout ---
 router.post('/enrollments', requireAuth, enrollmentController.enrol);
 router.get('/enrollments/mine', requireAuth, enrollmentController.listMine);
+
+// --- online payment (Razorpay) ---
+router.post('/payments/razorpay/order', requireAuth, paymentController.createRazorpayOrder);
+router.post('/payments/razorpay/verify', requireAuth, paymentController.verifyRazorpayPayment);
+router.post('/payments/razorpay/failed', requireAuth, paymentController.reportRazorpayFailure);
+// Public: authenticated by the X-Razorpay-Signature HMAC over the raw body.
+router.post('/payments/webhook/razorpay', paymentController.razorpayWebhook);
 
 module.exports = router;

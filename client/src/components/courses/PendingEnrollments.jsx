@@ -22,7 +22,13 @@ export default function PendingEnrollments() {
     getMyEnrollments()
       .then((enrollments) => {
         if (cancelled) return;
-        setPending(enrollments.filter((e) => e.status === 'pending'));
+        // Manual payments waiting on an admin, and failed payments to retry. A
+        // pending Razorpay order is an abandoned checkout, not something to wait on.
+        setPending(
+          enrollments.filter(
+            (e) => (e.status === 'pending' && e.gateway !== 'razorpay') || e.status === 'failed'
+          )
+        );
       })
       // A failure here just means the notice does not appear — My Courses
       // itself is unaffected, so there is nothing worth surfacing.
@@ -43,7 +49,7 @@ export default function PendingEnrollments() {
       <div className="flex items-center gap-2">
         <Hourglass className="h-4 w-4 text-amber-600" aria-hidden="true" />
         <h3 id="pending-enrolments-heading" className="text-sm font-semibold text-ink-900">
-          Awaiting payment confirmation
+          {pending.some((e) => e.status === 'failed') ? 'Payments needing attention' : 'Awaiting payment confirmation'}
         </h3>
         <Badge tone="warning">{pending.length}</Badge>
       </div>
@@ -67,15 +73,21 @@ export default function PendingEnrollments() {
                   ? `₹${Number(enrollment.amount).toLocaleString('en-IN')}`
                   : 'Free'}
                 {enrollment.method ? ` · ${enrollment.method}` : ''}
+                {enrollment.transactionId ? ` · ${enrollment.transactionId}` : ''}
               </p>
+              {enrollment.status === 'failed' && (
+                <p className="mt-1 text-xs font-medium text-red-600">
+                  Payment failed{enrollment.failureReason ? ` — ${enrollment.failureReason}` : ''}
+                </p>
+              )}
             </div>
 
             {enrollment.courseId?._id && (
               <Link
-                to={`/courses/${enrollment.courseId._id}`}
+                to={enrollment.status === 'failed' ? `/courses/${enrollment.courseId._id}/enrol` : `/courses/${enrollment.courseId._id}`}
                 className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-primary-700 hover:text-primary-800"
               >
-                View course
+                {enrollment.status === 'failed' ? 'Try again' : 'View course'}
                 <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
               </Link>
             )}

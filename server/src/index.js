@@ -36,7 +36,14 @@ app.use(
     exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length'],
   })
 );
-app.use(express.json());
+app.use(
+  express.json({
+    // The Razorpay webhook is signed over the exact bytes received, so keep them.
+    verify: (req, _res, buf) => {
+      if (req.originalUrl.startsWith('/api/payments/webhook')) req.rawBody = buf;
+    },
+  })
+);
 
 /**
  * Admin-uploaded course thumbnails.

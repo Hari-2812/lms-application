@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Award, Bell, CheckCheck, ChevronDown, LayoutGrid, LogOut, Menu, Search, Settings, User } from 'lucide-react';
+import {
+  Award,
+  Bell,
+  CheckCheck,
+  ChevronDown,
+  LayoutGrid,
+  LogOut,
+  Menu,
+  MonitorPlay,
+  Search,
+  Settings,
+  User,
+  UserCog,
+} from 'lucide-react';
 import Avatar from '../common/Avatar.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotifications } from '../../context/NotificationContext.jsx';
@@ -32,13 +45,23 @@ const menuItems = [
 
 // Prepended for admins, so the dashboard is reachable from any page without
 // typing the URL. AdminRoute still guards the route itself.
-const adminMenuItem = { to: '/admin', label: 'Admin dashboard', icon: LayoutGrid };
+const adminMenuItem = { to: '/admin', label: 'Admin panel', icon: LayoutGrid };
+
+// The account menu inside the admin panel.
+const adminPanelMenuItems = [
+  { to: '/admin/account', label: 'My account', icon: UserCog },
+  { to: '/dashboard', label: 'Learner view', icon: MonitorPlay },
+];
 
 /**
  * Dashboard top bar: contextual greeting on the left, search / notifications
  * / account menu on the right.
+ *
+ * `variant="admin"` is the admin panel's bar: the search looks up learners,
+ * and "View all notifications" opens the admin inbox.
  */
-export default function DashboardHeader({ title, subtitle, onMenuClick = () => {} }) {
+export default function DashboardHeader({ title, subtitle, onMenuClick = () => {}, variant = 'learner' }) {
+  const isAdminPanel = variant === 'admin';
   const { student, signOut } = useAuth();
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   const navigate = useNavigate();
@@ -84,11 +107,24 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
 
   const onSearch = (event) => {
     event.preventDefault();
-    navigate(query.trim() ? `/courses?q=${encodeURIComponent(query.trim())}` : '/courses');
+    const q = query.trim();
+    if (isAdminPanel) navigate(q ? `/admin/learners?search=${encodeURIComponent(q)}` : '/admin/learners');
+    else navigate(q ? `/courses?q=${encodeURIComponent(q)}` : '/courses');
   };
 
+  const searchLabel = isAdminPanel ? 'Search learners' : 'Search courses';
+  const accountMenu = isAdminPanel
+    ? adminPanelMenuItems
+    : student?.role === 'admin'
+      ? [adminMenuItem, ...menuItems]
+      : menuItems;
+
   return (
-    <header className="sticky top-0 z-30 border-b border-ink-100 bg-white/85 backdrop-blur-md supports-[backdrop-filter]:bg-white/75">
+    <header
+      className={`sticky top-0 z-30 border-b bg-white/85 backdrop-blur-md supports-[backdrop-filter]:bg-white/75 ${
+        isAdminPanel ? 'border-primary-100' : 'border-ink-100'
+      }`}
+    >
       <div className="flex h-16 items-center gap-3 px-4 sm:gap-4 sm:px-6 lg:px-8">
         <button
           type="button"
@@ -107,7 +143,7 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
             {title || `${greeting()}, ${firstName} 👋`}
           </h1>
           <p className="hidden truncate text-xs text-ink-500 sm:block">
-            {subtitle || 'Continue your learning journey.'}
+            {subtitle || (isAdminPanel ? 'Admin panel' : 'Continue your learning journey.')}
           </p>
         </div>
 
@@ -115,7 +151,7 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
 
         <form onSubmit={onSearch} role="search" className="hidden xl:block">
           <label htmlFor="dashboard-search" className="sr-only">
-            Search courses
+            {searchLabel}
           </label>
           <div className="relative w-72">
             <Search
@@ -127,7 +163,7 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search courses…"
+              placeholder={`${searchLabel}…`}
               className="w-full rounded-lg border border-ink-200 bg-ink-50/60 py-2 pl-9 pr-3 text-sm
                          transition placeholder:text-ink-400 focus:border-primary-500 focus:bg-white
                          focus:outline-none focus:ring-2 focus:ring-primary-500/20"
@@ -136,8 +172,8 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
         </form>
 
         <Link
-          to="/courses"
-          aria-label="Search courses"
+          to={isAdminPanel ? '/admin/learners' : '/courses'}
+          aria-label={searchLabel}
           className="rounded-lg p-2.5 text-ink-500 transition hover:bg-ink-50 hover:text-ink-900 xl:hidden"
         >
           <Search className="h-[18px] w-[18px]" />
@@ -213,7 +249,7 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
 
                 <div className="border-t border-ink-100 p-1 pt-1.5">
                   <Link
-                    to="/notifications"
+                    to={isAdminPanel ? '/admin/notifications' : '/notifications'}
                     role="menuitem"
                     onClick={() => setNotifOpen(false)}
                     className="block rounded-lg px-3 py-2 text-center text-[13px] font-semibold text-primary-700 transition hover:bg-primary-50"
@@ -264,7 +300,7 @@ export default function DashboardHeader({ title, subtitle, onMenuClick = () => {
                   <p className="truncate text-xs text-ink-500">{student?.email}</p>
                 </div>
 
-                {(student?.role === 'admin' ? [adminMenuItem, ...menuItems] : menuItems).map(({ to, label, icon: Icon }) => (
+                {accountMenu.map(({ to, label, icon: Icon }) => (
                   <Link
                     key={to}
                     to={to}

@@ -18,17 +18,24 @@ import { useAuth } from './AuthContext.jsx';
 
 const NotificationContext = createContext(null);
 
+/** Matches PAGE_SIZE in the server's notificationController. */
+const PAGE_SIZE = 20;
+
 export function NotificationProvider({ children }) {
   const { isAuthenticated, token } = useAuth();
 
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  // The API pages 20 at a time; history pages call loadMore for older ones.
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const socketRef = useRef(null);
 
   useEffect(() => {
     if (!isAuthenticated || !token) {
       setNotifications([]);
       setUnreadCount(0);
+      setHasMore(false);
       return undefined;
     }
 
@@ -41,6 +48,7 @@ export function NotificationProvider({ children }) {
       .then((data) => {
         setNotifications(data.notifications || []);
         setUnreadCount(data.unreadCount || 0);
+        setHasMore((data.notifications || []).length >= PAGE_SIZE);
       })
       .catch(() => {
         /* the bell just stays empty until the next successful fetch */
@@ -66,6 +74,25 @@ export function NotificationProvider({ children }) {
     markNotificationRead(id).catch(() => {});
   }, []);
 
+  const loadMore = useCallback(async () => {
+    const oldest = notifications[notifications.length - 1];
+    if (!oldest || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const data = await getNotifications(oldest.createdAt);
+      const older = data.notifications || [];
+      setNotifications((prev) => {
+        const seen = new Set(prev.map((n) => n.id));
+        return [...prev, ...older.filter((n) => !seen.has(n.id))];
+      });
+      setHasMore(older.length >= PAGE_SIZE);
+    } catch {
+      /* leave the button in place to try again */
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [notifications, loadingMore]);
+
   const markAllRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setUnreadCount(0);
@@ -73,8 +100,8 @@ export function NotificationProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ notifications, unreadCount, markRead, markAllRead }),
-    [notifications, unreadCount, markRead, markAllRead]
+    () => ({ notifications, unreadCount, markRead, markAllRead, loadMore, hasMore, loadingMore }),
+    [notifications, unreadCount, markRead, markAllRead, loadMore, hasMore, loadingMore]
   );
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;

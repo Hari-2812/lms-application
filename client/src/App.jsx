@@ -7,6 +7,7 @@ import DashboardLayout, { useIsDashboard } from './components/layout/DashboardLa
 import LearnLayout from './components/layout/LearnLayout.jsx';
 import ProtectedRoute from './components/layout/ProtectedRoute.jsx';
 import AdminRoute from './components/layout/AdminRoute.jsx';
+import AdminLayout, { SuperAdminOnly } from './components/admin/layout/AdminLayout.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 
 import Home from './pages/Home.jsx';
@@ -14,6 +15,8 @@ import Courses from './pages/Courses.jsx';
 import CourseDetails from './pages/CourseDetails.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
 import NotFound from './pages/NotFound.jsx';
 
 // The authenticated bundle is only fetched once a student signs in.
@@ -27,7 +30,20 @@ const Wishlist = lazy(() => import('./pages/Wishlist.jsx'));
 const Profile = lazy(() => import('./pages/Profile.jsx'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'));
 const HowItWorksPage = lazy(() => import('./pages/HowItWorksPage.jsx'));
-const AdminDashboard = lazy(() => import('./pages/AdminDashboard.jsx'));
+// Admin panel — its own bundle, fetched only by staff.
+const AdminOverview = lazy(() => import('./pages/admin/AdminOverview.jsx'));
+const AdminLearners = lazy(() => import('./pages/admin/AdminLearners.jsx'));
+const AdminLearnerDetail = lazy(() => import('./pages/admin/AdminLearnerDetail.jsx'));
+const AdminPayments = lazy(() => import('./pages/admin/AdminPayments.jsx'));
+const AdminCourses = lazy(() => import('./pages/admin/AdminCourses.jsx'));
+const AdminTasks = lazy(() => import('./pages/admin/AdminTasks.jsx'));
+const AdminEvents = lazy(() => import('./pages/admin/AdminEvents.jsx'));
+const AdminCertificates = lazy(() => import('./pages/admin/AdminCertificates.jsx'));
+const AdminNotifications = lazy(() => import('./pages/admin/AdminNotifications.jsx'));
+const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
+const AdminTeam = lazy(() => import('./pages/admin/AdminTeam.jsx'));
+const AdminActivity = lazy(() => import('./pages/admin/AdminActivity.jsx'));
+const AdminAccount = lazy(() => import('./pages/admin/AdminAccount.jsx'));
 const Checkout = lazy(() => import('./pages/Checkout.jsx'));
 const Events = lazy(() => import('./pages/Events.jsx'));
 const TaskSubmission = lazy(() => import('./pages/TaskSubmission.jsx'));
@@ -110,6 +126,8 @@ export default function App() {
           {/* ---------- Auth ---------- */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* ---------- Authenticated ---------- */}
           <Route element={<ProtectedRoute />}>
@@ -130,11 +148,33 @@ export default function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/how-it-works" element={<HowItWorksPage />} />
-              <Route path="/admin" element={
+            </Route>
+
+            {/* The admin panel: its own blue shell and navigation. Super-Admin-only
+                pages explain themselves to Support / Reviewer accounts; the API
+                enforces the same split. */}
+            <Route
+              path="/admin"
+              element={
                 <AdminRoute>
-                  <AdminDashboard />
+                  <AdminLayout />
                 </AdminRoute>
-              } />
+              }
+            >
+              <Route index element={<AdminOverview />} />
+              <Route path="learners" element={<AdminLearners />} />
+              <Route path="learners/:id" element={<AdminLearnerDetail />} />
+              <Route path="payments" element={<AdminPayments />} />
+              <Route path="courses" element={<SuperAdminOnly><AdminCourses /></SuperAdminOnly>} />
+              <Route path="tasks" element={<AdminTasks />} />
+              <Route path="events" element={<SuperAdminOnly><AdminEvents /></SuperAdminOnly>} />
+              <Route path="certificates" element={<AdminCertificates />} />
+              <Route path="notifications" element={<AdminNotifications />} />
+              <Route path="settings" element={<SuperAdminOnly><AdminSettings /></SuperAdminOnly>} />
+              <Route path="team" element={<SuperAdminOnly><AdminTeam /></SuperAdminOnly>} />
+              <Route path="activity" element={<SuperAdminOnly><AdminActivity /></SuperAdminOnly>} />
+              <Route path="account" element={<AdminAccount />} />
+              <Route path="*" element={<Navigate to="/admin" replace />} />
             </Route>
 
             {/* The player gets its own full-width shell. */}

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   AlertCircle,
-  CalendarClock,
   Loader2,
   Pencil,
   Plus,
@@ -67,7 +66,8 @@ export default function EventManager({ courses = [], onChanged }) {
   const [form, setForm] = useState(EMPTY);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [notifyStudents, setNotifyStudents] = useState(false);
+  // On by default: a new event is exactly what learners want to hear about.
+  const [notifyStudents, setNotifyStudents] = useState(true);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
 
@@ -92,7 +92,7 @@ export default function EventManager({ courses = [], onChanged }) {
   const reset = () => {
     setForm(EMPTY);
     setEditingId(null);
-    setNotifyStudents(false);
+    setNotifyStudents(true);
     setError('');
   };
 
@@ -161,16 +161,15 @@ export default function EventManager({ courses = [], onChanged }) {
   const now = Date.now();
 
   return (
-    <section id="events" className="card scroll-mt-20 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 p-6">
-        <div>
-          <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
-            <CalendarClock className="h-4 w-4 text-primary-600" aria-hidden="true" />
-            Upcoming events
-          </h2>
-          <p className="mt-1 text-[13px] text-ink-500">
-            Webinars, workshops and programmes shown to students under Upcoming Events.
-          </p>
+    <section id="events" className="admin-card scroll-mt-20 overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-[15px] font-semibold text-ink-900">Upcoming events</h2>
+            <p className="mt-0.5 text-[12.5px] text-ink-500">
+              Webinars, workshops and sessions shown to learners under Upcoming Events.
+            </p>
+          </div>
         </div>
 
         <Button
@@ -302,7 +301,7 @@ export default function EventManager({ courses = [], onChanged }) {
                     onChange={(e) => setNotifyStudents(e.target.checked)}
                     className="h-4 w-4 rounded border-ink-300 text-primary-600 focus:ring-primary-500/30"
                   />
-                  Notify students
+                  Notify learners
                 </label>
               )}
             </div>

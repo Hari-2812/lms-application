@@ -164,6 +164,41 @@
   .prose-course th {
     @apply bg-ink-50 font-semibold text-ink-900;
   }
+
+  /* Admin panel — blue and white --------------------------------------
+     A blue sidebar and plain white cards; blue marks actions, links and
+     the active page. */
+  .admin-card {
+    @apply rounded-xl border border-ink-100 bg-white;
+  }
+  .admin-sidebar-link {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium text-primary-100
+           transition hover:bg-white/10 hover:text-white;
+  }
+  .admin-sidebar-link-active {
+    @apply bg-white/15 font-semibold text-white hover:bg-white/15 hover:text-white;
+  }
+  .admin-table {
+    @apply w-full text-left text-sm;
+  }
+  .admin-table thead th {
+    @apply whitespace-nowrap border-b border-ink-100 bg-ink-50/60 px-4 py-2.5 text-[12px] font-medium
+           text-ink-500 first:pl-6 last:pr-6;
+  }
+  .admin-table tbody td {
+    @apply border-t border-ink-100 px-4 py-3 align-middle text-ink-700 first:pl-6 last:pr-6;
+  }
+  .admin-table tbody tr:first-child td {
+    @apply border-t-0;
+  }
+  .admin-table tbody tr {
+    @apply transition-colors hover:bg-ink-50/50;
+  }
+  .admin-field {
+    @apply rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900
+           placeholder:text-ink-400 transition focus:border-primary-500 focus:outline-none
+           focus:ring-2 focus:ring-primary-500/20;
+  }
 }
 
 @layer utilities {
@@ -189,6 +224,13 @@
   }
   .scrollbar-slim::-webkit-scrollbar-thumb {
     @apply rounded-full bg-ink-200;
+  }
+  /* Still scrolls (wheel, touch, keyboard) — just without a visible bar. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -226,15 +268,271 @@
     width: 100%;
     margin: 0;
     border: 0;
+    max-width: none;
     border-radius: 0;
     box-shadow: none;
   }
   body.printing-certificate [data-print-hide] {
     display: none !important;
   }
+  /* Hidden content still takes up room and would print as blank extra
+     pages, so drop everything that is neither the certificate nor one of
+     its ancestors. */
+  body.printing-certificate *:not(:has([data-print-root])):not([data-print-root]):not([data-print-root] *) {
+    display: none !important;
+  }
 }
 
-/* Keeps the dark certificate face from printing as a white box. */
+/* Certificate template ------------------------------------------------
+   The Analytics Avenue completion certificate (components/certificates/
+   CertificateFace.jsx). Sized entirely in container units so it scales as
+   one piece; the page keeps the artwork's 1550 × 1000 ratio. */
+.aa-cert {
+  container-type: inline-size;
+  width: 100%;
+}
+.aa-cert__page {
+  position: relative;
+  aspect-ratio: 1550 / 1000;
+  overflow: hidden;
+  color: #1c2b4b;
+  font-family: Inter, 'Segoe UI', Arial, sans-serif;
+  text-align: center;
+}
+.aa-cert__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.aa-cert__watermark {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -50%) rotate(-20deg);
+  font-size: 13cqw;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  color: rgba(21, 87, 201, 0.06);
+  pointer-events: none;
+}
+
+.aa-cert__brand {
+  position: absolute;
+  left: 3.6%;
+  top: 4%;
+  display: flex;
+  align-items: flex-start;
+  gap: 1cqw;
+  text-align: left;
+}
+.aa-cert__logo {
+  height: 8.6cqw;
+  width: auto;
+}
+.aa-cert__company {
+  margin-top: 0.35cqw;
+  padding-bottom: 0.45cqw;
+  border-bottom: 0.13cqw solid #1557c9;
+  font-family: Merriweather, Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: 2.85cqw;
+  line-height: 1.1;
+  color: #0d2a6b;
+  white-space: nowrap;
+}
+.aa-cert__company-first {
+  color: #1557c9;
+}
+.aa-cert__tagline {
+  max-width: 16.5cqw;
+  margin-top: 0.55cqw;
+  font-size: 1.2cqw;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1.3;
+  color: #0d2a6b;
+}
+
+.aa-cert__seal {
+  position: absolute;
+  left: 11.4%;
+  top: 60.5%;
+  width: 13.5%;
+}
+
+.aa-cert__body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 13.4%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.aa-cert__title {
+  font-family: Merriweather, Georgia, 'Times New Roman', serif;
+  font-weight: 900;
+  font-size: 4.1cqw;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0d3a9e;
+}
+.aa-cert__subtitle {
+  display: flex;
+  align-items: center;
+  gap: 1.3cqw;
+  margin-top: 0.2cqw;
+  font-family: Merriweather, Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: 2.85cqw;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: #0d3a9e;
+}
+.aa-cert__subtitle-text {
+  letter-spacing: 0.2em;
+  /* letter-spacing trails the last letter; pull it back so the word centres */
+  margin-right: -0.2em;
+}
+
+/* Thin rules with diamond ends, beside the subtitle and the name. */
+.aa-cert__rule {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 8cqw;
+  height: 0.13cqw;
+  background: #1557c9;
+}
+.aa-cert__rule--long {
+  width: 13.5cqw;
+}
+.aa-cert__rule::before,
+.aa-cert__rule::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 0.55cqw;
+  height: 0.55cqw;
+  background: #1557c9;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.aa-cert__rule::before {
+  left: 0;
+}
+.aa-cert__rule::after {
+  left: 100%;
+}
+.aa-cert__rule--end::before,
+.aa-cert__rule--start::after {
+  display: none;
+}
+
+.aa-cert__certify {
+  margin-top: 2.3cqw;
+  font-size: 1.66cqw;
+  line-height: 1.4;
+}
+.aa-cert__name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2.4cqw;
+  width: 100%;
+  margin-top: 1cqw;
+}
+.aa-cert__name {
+  font-family: Merriweather, Georgia, 'Times New Roman', serif;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1.25;
+  white-space: nowrap;
+  color: #0e3fa3;
+}
+.aa-cert__completed {
+  margin-top: 0.9cqw;
+  font-size: 1.42cqw;
+  line-height: 1.4;
+}
+.aa-cert__course {
+  max-width: 62cqw;
+  margin-top: 0.3cqw;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #1557c9;
+}
+.aa-cert__course-label {
+  margin-top: 0.1cqw;
+  font-size: 1.55cqw;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.3;
+}
+.aa-cert__offered {
+  margin-top: 0.9cqw;
+  font-size: 1.47cqw;
+  line-height: 1.4;
+}
+.aa-cert__offered strong {
+  font-weight: 800;
+  color: #1557c9;
+}
+.aa-cert__recognition {
+  max-width: 44cqw;
+  margin-top: 0.7cqw;
+  font-size: 1.27cqw;
+  line-height: 1.5;
+  color: #2a3a5c;
+}
+.aa-cert__block {
+  padding-top: 0.85cqw;
+  border-top: 0.11cqw solid #1557c9;
+}
+.aa-cert__block--date {
+  width: 31.7cqw;
+  margin-top: 2.2cqw;
+}
+.aa-cert__block--issuer {
+  width: 24.2cqw;
+  margin-top: 1.6cqw;
+}
+.aa-cert__month {
+  font-size: 1.3cqw;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
+  color: #1557c9;
+}
+.aa-cert__caption {
+  margin-top: 0.3cqw;
+  font-size: 0.98cqw;
+  letter-spacing: 0.1em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: #2a3a5c;
+}
+.aa-cert__issuer {
+  font-size: 1.8cqw;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #1557c9;
+}
+.aa-cert__issuer-title {
+  font-size: 1.22cqw;
+  line-height: 1.5;
+}
+.aa-cert__serial {
+  position: absolute;
+  right: 4.6%;
+  bottom: 4.4%;
+  font-size: 0.8cqw;
+  letter-spacing: 0.03em;
+  color: #5b6b8c;
+}
+
+/* Keeps the certificate artwork printing in colour rather than as a white box. */
 [data-print-root] {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;

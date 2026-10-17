@@ -3,7 +3,9 @@ const Course = require('../models/Course');
 const Lesson = require('../models/Lesson');
 const Progress = require('../models/Progress');
 const User = require('../models/User');
-const { notifyUser } = require('./notificationService');
+const Submission = require('../models/Submission');
+const settingsService = require('./settingsService');
+const { notifyUser, notifyAdmins } = require('./notificationService');
 
 /**
  * Certificate issuing.
@@ -22,13 +24,33 @@ const { notifyUser } = require('./notificationService');
  */
 const asProgressId = (studentId) => String(studentId);
 
-/** Completed-lesson count vs. total, for one student and course. */
+/**
+ * Whether a student has met the course's completion criteria, as set in
+ * Settings → Learning rules: a share of the lessons complete and, optionally,
+ * an accepted task submission for the course.
+ */
 async function completionFor(studentId, courseId) {
-  const [lessonCount, completedCount] = await Promise.all([
+  const [{ learning }, lessonCount, completedCount] = await Promise.all([
+    settingsService.get(),
     Lesson.countDocuments({ courseId }),
     Progress.countDocuments({ studentId: asProgressId(studentId), courseId, completed: true }),
   ]);
-  return { lessonCount, completedCount, complete: lessonCount > 0 && completedCount >= lessonCount };
+
+  const requiredCount = Math.max(1, Math.ceil((lessonCount * learning.certificateCompletionPercent) / 100));
+  const lessonsDone = lessonCount > 0 && completedCount >= requiredCount;
+
+  let taskDone = true;
+  if (learning.requireAcceptedTask) {
+    taskDone = Boolean(await Submission.exists({ studentId, courseId, status: 'accepted' }));
+  }
+
+  return {
+    lessonCount,
+    completedCount,
+    requiredCount,
+    needsAcceptedTask: learning.requireAcceptedTask && !taskDone,
+    complete: lessonsDone && taskDone,
+  };
 }
 
 /**
@@ -71,13 +93,27 @@ async function issueForCourse(studentId, courseId, { notify = true } = {}) {
   }
 
   if (notify) {
-    await notifyUser(studentId, {
-      type: 'certificate',
-      title: 'Certificate ready',
-      message: `Your certificate for "${course.title}" has been generated and is ready to download.`,
-      courseId,
-      link: '/certificates',
-    });
+    await notifyUser(
+      studentId,
+      {
+        type: 'certificate',
+        title: 'Certificate ready',
+        message: `Your certificate for "${course.title}" has been generated and is ready to download.`,
+        courseId,
+        link: '/certificates',
+      },
+      { setting: 'learner.certificateReady' }
+    );
+    await notifyAdmins(
+      {
+        type: 'certificate',
+        title: 'Certificate issued',
+        message: `${student.name} earned the certificate for "${course.title}" (${certificate.serial}).`,
+        courseId,
+        link: '/admin/certificates',
+      },
+      { setting: 'admin.certificateIssued' }
+    );
   }
 
   return certificate;

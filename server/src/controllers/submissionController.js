@@ -1,4 +1,7 @@
+const Assignment = require('../models/Assignment');
 const Submission = require('../models/Submission');
+const activity = require('../services/activityService');
+const certificateService = require('../services/certificateService');
 const { notifyUser, notifyAdmins } = require('../services/notificationService');
 
 /**
@@ -44,7 +47,8 @@ function validateDriveLink(raw) {
 /** POST /api/submissions */
 async function createSubmission(req, res, next) {
   try {
-    const { category, title, description, driveLink, courseId } = req.body || {};
+    const { category, title, description, driveLink, assignmentId } = req.body || {};
+    let { courseId } = req.body || {};
 
     if (!Submission.CATEGORIES.includes(category)) {
       return res.status(400).json({ error: 'Choose a category from the list.' });
@@ -61,6 +65,14 @@ async function createSubmission(req, res, next) {
     const link = validateDriveLink(driveLink);
     if (link.error) return res.status(400).json({ error: link.error });
 
+    // Work handed in against an assignment belongs to that assignment's course.
+    let assignment = null;
+    if (assignmentId) {
+      assignment = await Assignment.findOne({ _id: assignmentId, published: true });
+      if (!assignment) return res.status(400).json({ error: 'That assignment is no longer open.' });
+      if (assignment.courseId) courseId = assignment.courseId;
+    }
+
     const submission = await Submission.create({
       studentId: req.user._id,
       category,
@@ -68,14 +80,19 @@ async function createSubmission(req, res, next) {
       description: trimmedDescription,
       driveLink: link.value,
       courseId: courseId || undefined,
+      assignmentId: assignment?._id,
     });
 
-    await notifyAdmins({
-      type: 'task',
-      title: 'New task submission',
-      message: `${req.user.name} submitted ${category}${submission.title ? `: ${submission.title}` : ''}.`,
-      link: '/admin',
-    });
+    const what = assignment ? `"${assignment.title}"` : category;
+    await notifyAdmins(
+      {
+        type: 'submission',
+        title: 'Task submitted — awaiting review',
+        message: `${req.user.name} submitted ${what}${submission.title ? `: ${submission.title}` : ''}.`,
+        link: '/admin/tasks',
+      },
+      { setting: 'admin.taskSubmitted' }
+    );
 
     res.status(201).json(submission);
   } catch (err) {
@@ -88,6 +105,7 @@ async function listMine(req, res, next) {
   try {
     const submissions = await Submission.find({ studentId: req.user._id })
       .populate('courseId', 'title')
+      .populate('assignmentId', 'title maxScore dueDate')
       .sort({ createdAt: -1 });
     res.json(submissions);
   } catch (err) {
@@ -130,10 +148,12 @@ async function listAll(req, res, next) {
     const filter = {};
     if (req.query.status) filter.status = req.query.status;
     if (req.query.category) filter.category = req.query.category;
+    if (req.query.assignmentId) filter.assignmentId = req.query.assignmentId;
 
     const submissions = await Submission.find(filter)
       .populate('studentId', 'name email')
       .populate('courseId', 'title')
+      .populate('assignmentId', 'title maxScore dueDate')
       .sort({ createdAt: -1 })
       .limit(300);
 
@@ -143,43 +163,90 @@ async function listAll(req, res, next) {
   }
 }
 
-/** PATCH /api/admin/submissions/:id  body: { status, feedback } */
+/** PATCH /api/admin/submissions/:id  body: { status, feedback, score } */
 async function review(req, res, next) {
   try {
-    const { status, feedback } = req.body || {};
+    const { status, feedback, score } = req.body || {};
 
     if (status !== undefined && !Submission.STATUSES.includes(status)) {
       return res.status(400).json({ error: 'Unknown review status.' });
     }
 
-    const submission = await Submission.findById(req.params.id);
+    const submission = await Submission.findById(req.params.id).populate('assignmentId', 'title maxScore');
     if (!submission) return res.status(404).json({ error: 'Submission not found' });
 
+    // undefined = leave the score alone, null = clear it.
+    const maxScore = submission.assignmentId?.maxScore || 100;
+    let resolvedScore;
+    if (score === null || score === '') resolvedScore = null;
+    else if (score !== undefined) {
+      resolvedScore = Number(score);
+      if (!Number.isFinite(resolvedScore) || resolvedScore < 0 || resolvedScore > maxScore) {
+        return res.status(400).json({ error: `Score must be between 0 and ${maxScore}.` });
+      }
+    }
+
     const previousStatus = submission.status;
+    const previousScore = submission.score;
 
     if (status !== undefined) submission.status = status;
     if (feedback !== undefined) submission.feedback = String(feedback).trim().slice(0, 2000);
+    if (resolvedScore !== undefined) submission.score = resolvedScore;
     submission.reviewedBy = req.user._id;
     submission.reviewedAt = new Date();
     await submission.save();
 
+    const hasScore = submission.score !== null && submission.score !== undefined;
+    const statusChanged = status !== undefined && status !== previousStatus;
+    const scoreChanged = resolvedScore !== undefined && resolvedScore !== previousScore;
+
     // Only tell the student when the outcome actually changed — saving a
     // note to yourself should not ping them.
-    if (status !== undefined && status !== previousStatus) {
+    if (statusChanged || (scoreChanged && submission.status !== 'submitted')) {
       const wording = {
         under_review: 'is being reviewed',
         accepted: 'was accepted',
         needs_revision: 'needs another look',
         submitted: 'was reopened',
-      }[status];
+      }[submission.status];
+      const what = submission.assignmentId
+        ? `"${submission.assignmentId.title}"`
+        : `${submission.category} submission`;
+      const reviewed = ['accepted', 'needs_revision'].includes(submission.status);
 
-      await notifyUser(submission.studentId, {
-        type: 'task',
-        title: 'Task review update',
-        message:
-          `Your ${submission.category} submission ${wording}.` +
-          (submission.feedback ? ` Feedback: ${submission.feedback.slice(0, 120)}` : ''),
-        link: '/tasks',
+      await notifyUser(
+        submission.studentId,
+        {
+          type: 'task_review',
+          title: reviewed ? 'Task reviewed — feedback ready' : 'Task review update',
+          message:
+            `Your ${what} ${wording}.` +
+            (hasScore ? ` Score: ${submission.score}/${maxScore}.` : '') +
+            (submission.feedback ? ` Feedback: ${submission.feedback.slice(0, 120)}` : ''),
+          link: '/tasks',
+        },
+        // "Being reviewed" is a courtesy; the Settings switch covers the result itself.
+        { setting: reviewed ? 'learner.taskReviewed' : undefined }
+      );
+    }
+
+    // An accepted task may be the last thing standing between the learner
+    // and a certificate, when Settings requires one.
+    if (statusChanged && submission.status === 'accepted' && submission.courseId) {
+      await certificateService
+        .issueForCourse(submission.studentId, submission.courseId)
+        .catch((err) => console.error('[review] certificate issue failed:', err.message));
+    }
+
+    if (statusChanged || scoreChanged) {
+      await activity.log(req, {
+        category: 'task',
+        action: 'task.reviewed',
+        summary: `Reviewed a submission: ${submission.status.replace('_', ' ')}${
+          hasScore ? `, score ${submission.score}/${maxScore}` : ''
+        }`,
+        entityType: 'submission',
+        entityId: submission._id,
       });
     }
 

@@ -83,6 +83,13 @@ export const getHealth = () => api.get('/health').then((r) => r.data);
 export const login = (credentials) => api.post('/auth/login', credentials).then((r) => r.data);
 export const register = (payload) => api.post('/auth/register', payload).then((r) => r.data);
 export const logout = () => api.post('/auth/logout').then((r) => r.data);
+export const forgotPassword = (email) => api.post('/auth/forgot-password', { email }).then((r) => r.data);
+export const resetPassword = (payload) => api.post('/auth/reset-password', payload).then((r) => r.data);
+export const updateMe = (payload) => api.put('/me', payload).then((r) => r.data);
+export const changePassword = (payload) => api.put('/me/password', payload).then((r) => r.data);
+
+// --- platform settings ------------------------------------------------------
+export const getPublicSettings = () => api.get('/settings/public').then((r) => r.data);
 
 // --- courses --------------------------------------------------------------
 export const getCourses = () =>
@@ -123,13 +130,74 @@ export const bulkGrantAccess = (studentIds, courseId) =>
 export const broadcastNotification = (payload) =>
   api.post('/admin/notifications', payload).then((r) => r.data);
 
-// --- admin: enrolments awaiting payment confirmation ------------------------
+// --- admin: enrolments (used by the notification composer) ------------------
 export const getEnrollments = (status) =>
   api.get('/admin/enrollments', { params: status ? { status } : undefined }).then((r) => r.data);
-export const confirmEnrollment = (id, reference) =>
-  api.post(`/admin/enrollments/${id}/confirm`, { reference }).then((r) => r.data);
-export const cancelEnrollment = (id) =>
-  api.post(`/admin/enrollments/${id}/cancel`).then((r) => r.data);
+
+// --- admin: overview ----------------------------------------------------------
+export const getAdminOverview = () => api.get('/admin/overview').then((r) => r.data);
+
+// --- admin: learners ----------------------------------------------------------
+export const getLearners = (params) => api.get('/admin/learners', { params }).then((r) => r.data);
+export const getLearner = (id) => api.get(`/admin/learners/${id}`).then((r) => r.data);
+export const setLearnerStatus = (id, status, reason) =>
+  api.patch(`/admin/learners/${id}/status`, { status, reason }).then((r) => r.data);
+export const enrolLearner = (id, courseId) =>
+  api.post(`/admin/learners/${id}/enrol`, { courseId }).then((r) => r.data);
+export const unenrolLearner = (id, courseId) =>
+  api.delete(`/admin/learners/${id}/enrol/${courseId}`).then((r) => r.data);
+/** mode: 'link' emails a reset link, 'temporary' returns a one-time password. */
+export const resetUserPassword = (id, mode) =>
+  api.post(`/admin/users/${id}/reset-password`, { mode }).then((r) => r.data);
+
+// --- admin: payments ------------------------------------------------------------
+export const getPayments = (params) => api.get('/admin/payments', { params }).then((r) => r.data);
+export const confirmPayment = (id, reference) =>
+  api.post(`/admin/payments/${id}/confirm`, { reference }).then((r) => r.data);
+export const failPayment = (id, reason) =>
+  api.post(`/admin/payments/${id}/fail`, { reason }).then((r) => r.data);
+export const cancelPayment = (id) => api.post(`/admin/payments/${id}/cancel`).then((r) => r.data);
+export const retryPayment = (id) => api.post(`/admin/payments/${id}/retry`).then((r) => r.data);
+export const updatePayment = (id, payload) => api.patch(`/admin/payments/${id}`, payload).then((r) => r.data);
+
+/** Fetches the PDF with the session's token and hands it to the browser as a download. */
+export async function downloadPaymentsReport(params) {
+  const response = await api.get('/admin/payments/report.pdf', { params, responseType: 'blob' });
+  const url = URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `payments-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// --- admin: certificates, settings, team, activity -------------------------------
+export const getAdminCertificates = (params) =>
+  api.get('/admin/certificates', { params }).then((r) => r.data);
+export const getAdminSettings = () => api.get('/admin/settings').then((r) => r.data);
+export const updateAdminSettings = (patch) => api.put('/admin/settings', patch).then((r) => r.data);
+export const sendTestEmail = () => api.post('/admin/settings/test-email').then((r) => r.data);
+export const getTeam = () => api.get('/admin/team').then((r) => r.data);
+export const addTeamMember = (payload) => api.post('/admin/team', payload).then((r) => r.data);
+export const updateTeamMember = (id, payload) => api.patch(`/admin/team/${id}`, payload).then((r) => r.data);
+export const getActivity = (params) => api.get('/admin/activity', { params }).then((r) => r.data);
+
+// --- assignments (tasks with a due date) -----------------------------------------
+export const getAssignments = () => api.get('/assignments').then((r) => r.data);
+export const getAdminAssignments = () => api.get('/admin/assignments').then((r) => r.data);
+export const createAssignment = (payload) => api.post('/admin/assignments', payload).then((r) => r.data);
+export const updateAssignment = (id, payload) => api.put(`/admin/assignments/${id}`, payload).then((r) => r.data);
+export const deleteAssignment = (id) => api.delete(`/admin/assignments/${id}`).then((r) => r.data);
+
+// --- online payment (Razorpay) ------------------------------------------------------
+export const createRazorpayOrder = (courseId) =>
+  api.post('/payments/razorpay/order', { courseId }).then((r) => r.data);
+export const verifyRazorpayPayment = (payload) =>
+  api.post('/payments/razorpay/verify', payload).then((r) => r.data);
+export const reportRazorpayFailure = (payload) =>
+  api.post('/payments/razorpay/failed', payload).then((r) => r.data);
 
 // --- admin: thumbnail uploads -----------------------------------------------
 /** Uploads an image file and resolves to its served path, e.g. /uploads/... */

@@ -26,6 +26,7 @@ function initSocket(httpServer, isOriginAllowed) {
       const decoded = jwt.verify(token, JWT_SECRET);
       const user = await User.findById(decoded.id);
       if (!user) return next(new Error('User no longer exists'));
+      if (user.status === 'suspended') return next(new Error('Account suspended'));
 
       socket.userId = String(user._id);
       next();

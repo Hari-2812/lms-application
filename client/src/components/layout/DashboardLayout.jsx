@@ -8,7 +8,7 @@ import DashboardHeader from './DashboardHeader.jsx';
  * Lets a page set the text shown in the dashboard header without lifting the
  * whole header into every page.
  */
-const PageMetaContext = createContext(null);
+export const PageMetaContext = createContext(null);
 
 export function usePageMeta(title, subtitle) {
   const setMeta = useContext(PageMetaContext);

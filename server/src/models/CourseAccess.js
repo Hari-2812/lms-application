@@ -6,6 +6,10 @@ const courseAccessSchema = new mongoose.Schema(
     courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
     active: { type: Boolean, default: true },
     grantedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    // How the access came about: 'payment', 'free', 'manual' (admin) or 'bulk'.
+    source: { type: String, default: 'manual' },
+    // Set when Settings limits access to N days; absent means lifetime access.
+    expiresAt: { type: Date },
   },
   { timestamps: true }
 );

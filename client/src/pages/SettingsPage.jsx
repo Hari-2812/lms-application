@@ -4,6 +4,7 @@ import { Bell, LogOut, Monitor, Shield, Trash2, User } from 'lucide-react';
 import { usePageMeta } from '../components/layout/DashboardLayout.jsx';
 import Button from '../components/common/Button.jsx';
 import Modal from '../components/common/Modal.jsx';
+import ChangePasswordForm from '../components/common/ChangePasswordForm.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
 /** A labelled on/off switch used by the notification preferences. */
@@ -29,7 +30,7 @@ function Toggle({ id, label, description, checked, onChange }) {
         }`}
       >
         <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+          className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
             checked ? 'translate-x-[1.375rem]' : 'translate-x-0.5'
           }`}
         />
@@ -76,8 +77,8 @@ export default function SettingsPage() {
   const accountRows = [
     { label: 'Full name', value: student?.name },
     { label: 'Email', value: student?.email },
-    { label: 'Student ID', value: student?.id },
-    { label: 'Plan', value: 'Free access' },
+    { label: 'Phone', value: student?.phone },
+    { label: 'Member since', value: student?.createdAt ? new Date(student.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '' },
   ];
 
   return (
@@ -161,6 +162,11 @@ export default function SettingsPage() {
           ever exposed to your browser, and your playback position is stored against your account
           only.
         </p>
+
+        <div className="mt-6 border-t border-ink-100 pt-5">
+          <h3 className="mb-4 text-sm font-semibold text-ink-900">Change password</h3>
+          <ChangePasswordForm />
+        </div>
 
         <div className="mt-6 flex flex-wrap gap-3 border-t border-ink-100 pt-5">
           <Button variant="secondary" onClick={() => setConfirmSignOut(true)}>

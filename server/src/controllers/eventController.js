@@ -1,8 +1,9 @@
 const Event = require('../models/Event');
 const CourseAccess = require('../models/CourseAccess');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
-const { notifyUsers } = require('../services/notificationService');
-const User = require('../models/User');
+const { notifyUsers, activeLearnerIds } = require('../services/notificationService');
+const activity = require('../services/activityService');
+const { isGrantLive } = require('../services/enrolmentService');
 
 /** Fields the admin dashboard may set on an event. */
 function buildFields(body = {}) {
@@ -114,23 +115,37 @@ async function createEvent(req, res, next) {
 
     // Announce it, either to one course's students or to everyone.
     if (req.body?.notifyStudents && event.published) {
-      const recipients = event.courseId
-        ? (await CourseAccess.find({ courseId: event.courseId, active: true }).select('studentId')).map(
-            (g) => g.studentId
-          )
-        : (await User.find({ role: { $ne: 'admin' } }).select('_id')).map((u) => u._id);
+      let recipients;
+      if (event.courseId) {
+        const grants = await CourseAccess.find({ courseId: event.courseId, active: true });
+        recipients = await activeLearnerIds({ _id: { $in: grants.filter(isGrantLive).map((g) => g.studentId) } });
+      } else {
+        recipients = await activeLearnerIds();
+      }
 
-      await notifyUsers(recipients, {
-        type: 'event',
-        title: 'Upcoming event',
-        message: `${event.title} — ${new Date(event.startsAt).toLocaleString('en-GB', {
-          dateStyle: 'medium',
-          timeStyle: 'short',
-        })}`,
-        courseId: event.courseId || undefined,
-        link: '/events',
-      });
+      await notifyUsers(
+        recipients,
+        {
+          type: 'event',
+          title: 'New event added',
+          message: `${event.title} — ${new Date(event.startsAt).toLocaleString('en-GB', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+          })}${event.location ? ` · ${event.location}` : ''}`,
+          courseId: event.courseId || undefined,
+          link: '/events',
+        },
+        { setting: 'learner.newEvent' }
+      );
     }
+
+    await activity.log(req, {
+      category: 'course',
+      action: 'event.created',
+      summary: `Created event "${event.title}"${event.published ? '' : ' (draft)'}`,
+      entityType: 'event',
+      entityId: event._id,
+    });
 
     res.status(201).json(event);
   } catch (err) {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Award, BookOpen, Camera, Clock, Mail, Save, User } from 'lucide-react';
+import { Award, BookOpen, Camera, Clock, Mail, MapPin, Phone, Save, User } from 'lucide-react';
+import { toErrorMessage } from '../api/client';
 import { usePageMeta } from '../components/layout/DashboardLayout.jsx';
 import Avatar from '../components/common/Avatar.jsx';
 import Badge from '../components/common/Badge.jsx';
@@ -18,11 +19,14 @@ export default function Profile() {
 
   const [form, setForm] = useState({
     name: student?.name || '',
-    email: student?.email || '',
+    phone: student?.phone || '',
+    city: student?.city || '',
     headline: student?.headline || '',
     bio: student?.bio || '',
   });
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   usePageMeta('Profile', 'Manage how you appear across the platform.');
 
@@ -31,10 +35,18 @@ export default function Profile() {
     setSaved(false);
   };
 
-  const onSubmit = (event) => {
+  const onSubmit = async (event) => {
     event.preventDefault();
-    updateProfile(form);
-    setSaved(true);
+    setSaving(true);
+    setSaveError('');
+    try {
+      await updateProfile(form);
+      setSaved(true);
+    } catch (err) {
+      setSaveError(toErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (status === 'error') return <ErrorState message={error} />;
@@ -118,10 +130,19 @@ export default function Profile() {
               label="Email address"
               type="email"
               icon={Mail}
-              value={form.email}
-              onChange={setField('email')}
-              autoComplete="email"
+              value={student?.email || ''}
+              disabled
+              hint="Contact support to change the email on your account."
             />
+            <Input
+              label="Phone number"
+              type="tel"
+              icon={Phone}
+              value={form.phone}
+              onChange={setField('phone')}
+              autoComplete="tel"
+            />
+            <Input label="City" icon={MapPin} value={form.city} onChange={setField('city')} autoComplete="address-level2" />
           </div>
 
           <Input
@@ -146,7 +167,7 @@ export default function Profile() {
           </div>
 
           <div className="flex items-center gap-4 border-t border-ink-100 pt-5">
-            <Button type="submit">
+            <Button type="submit" loading={saving}>
               <Save className="h-4 w-4" aria-hidden="true" />
               Save changes
             </Button>
@@ -155,13 +176,14 @@ export default function Profile() {
                 Profile updated.
               </p>
             )}
+            {saveError && (
+              <p role="alert" className="text-[13px] font-medium text-red-600">
+                {saveError}
+              </p>
+            )}
           </div>
         </form>
 
-        <p className="mt-6 rounded-lg bg-surface-muted p-3.5 text-[13px] leading-relaxed text-ink-600">
-          Profile changes are stored with your session. They will persist to the database once the
-          API exposes a profile endpoint.
-        </p>
       </section>
     </div>
   );

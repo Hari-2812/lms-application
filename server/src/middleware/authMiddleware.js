@@ -4,6 +4,23 @@ const User = require('../models/User');
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret-key-change-in-prod';
 const ADMIN_EMAIL = 'analyticsavenue@gmail.com';
 
+/**
+ * Why a user who presented a valid token is still refused, or null if they
+ * may proceed: the account was suspended, or the password changed after the
+ * token was issued (which is how a reset signs out every other session).
+ */
+function rejectionFor(user, decoded) {
+  if (user.status === 'suspended') return 'Your account is suspended. Please contact support.';
+  if (user.passwordChangedAt && decoded.iat) {
+    // A JWT's iat has one-second resolution; allow that much slack so the
+    // token issued in the same second as the change still works.
+    if (decoded.iat * 1000 < user.passwordChangedAt.getTime() - 1000) {
+      return 'Your password was changed. Please sign in again.';
+    }
+  }
+  return null;
+}
+
 async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
@@ -26,6 +43,9 @@ async function requireAuth(req, res, next) {
     if (!user) {
       return res.status(401).json({ error: 'User no longer exists' });
     }
+
+    const rejection = rejectionFor(user, decoded);
+    if (rejection) return res.status(401).json({ error: rejection });
 
     req.user = user;
     
@@ -62,7 +82,7 @@ async function optionalAuth(req, _res, next) {
 
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findById(decoded.id);
-    if (user) {
+    if (user && !rejectionFor(user, decoded)) {
       req.user = user;
       req.student = user;
     }
@@ -86,9 +106,26 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+/**
+ * Super-admin only: money, access, content, settings and the team. A
+ * Support/Reviewer account gets read access to learners and payments, the
+ * review queue, certificates and notifications — never these.
+ * Must be called AFTER requireAuth.
+ */
+function requireSuperAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  if (req.user.staffRole() !== 'super_admin') {
+    return res.status(403).json({ error: 'Only a Super Admin can do this' });
+  }
+  next();
+}
+
 module.exports = {
   requireAuth,
   optionalAuth,
   requireAdmin,
+  requireSuperAdmin,
+  rejectionFor,
   ADMIN_EMAIL,
 };

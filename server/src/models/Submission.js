@@ -43,10 +43,15 @@ const submissionSchema = new mongoose.Schema(
     // Optional tie to the course the work belongs to.
     courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course' },
 
+    // Set when the work answers an admin-set assignment.
+    assignmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Assignment', index: true },
+
     status: { type: String, enum: STATUSES, default: 'submitted', index: true },
 
     // Reviewer's notes back to the student.
     feedback: { type: String, default: '' },
+    // Out of the assignment's maxScore (100 when there is no assignment).
+    score: { type: Number, min: 0, default: null },
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     reviewedAt: { type: Date },
   },

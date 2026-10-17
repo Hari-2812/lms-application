@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import {
   Award,
   Bell,
   BookOpen,
   CalendarClock,
   CheckCheck,
+  ClipboardCheck,
   CreditCard,
   ListChecks,
   Lock,
   Megaphone,
   RefreshCw,
+  Sparkles,
   Trophy,
   Unlock,
 } from 'lucide-react';
@@ -19,6 +21,7 @@ import Button from '../components/common/Button.jsx';
 import EmptyState from '../components/common/EmptyState.jsx';
 import Tabs from '../components/common/Tabs.jsx';
 import { useNotifications } from '../context/NotificationContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 /**
  * The full notification history, behind the bell icon's "View all".
@@ -27,6 +30,8 @@ import { useNotifications } from '../context/NotificationContext.jsx';
  * and lets the student filter by what kind of update it is. Both read from
  * the same NotificationContext, so a notification marked read here is marked
  * read in the bell immediately.
+ *
+ * Staff have their own inbox (and the composer) at /admin/notifications.
  */
 
 /** Icon and colour per notification type. */
@@ -35,9 +40,11 @@ const TYPES = {
   access_revoked: { icon: Lock, tone: 'bg-red-50 text-red-600', label: 'Access' },
   new_lesson: { icon: BookOpen, tone: 'bg-primary-50 text-primary-600', label: 'Course' },
   course_update: { icon: RefreshCw, tone: 'bg-primary-50 text-primary-600', label: 'Course' },
+  new_course: { icon: Sparkles, tone: 'bg-primary-50 text-primary-600', label: 'New course' },
   progress_milestone: { icon: Trophy, tone: 'bg-amber-50 text-amber-600', label: 'Progress' },
   certificate: { icon: Award, tone: 'bg-amber-50 text-amber-600', label: 'Certificate' },
   task: { icon: ListChecks, tone: 'bg-violet-50 text-violet-600', label: 'Task' },
+  task_review: { icon: ClipboardCheck, tone: 'bg-violet-50 text-violet-600', label: 'Task review' },
   event: { icon: CalendarClock, tone: 'bg-sky-50 text-sky-600', label: 'Event' },
   payment: { icon: CreditCard, tone: 'bg-emerald-50 text-emerald-600', label: 'Payment' },
   announcement: { icon: Megaphone, tone: 'bg-ink-100 text-ink-600', label: 'Announcement' },
@@ -49,16 +56,18 @@ const FILTERS = [
   { value: 'all', label: 'All' },
   { value: 'unread', label: 'Unread' },
   { value: 'course', label: 'Courses' },
+  { value: 'tasks', label: 'Tasks' },
   { value: 'certificate', label: 'Certificates' },
   { value: 'other', label: 'Other' },
 ];
 
 /** Which filter tab a notification belongs under. */
 function groupOf(type) {
-  if (['new_lesson', 'course_update', 'access_granted', 'access_revoked', 'progress_milestone'].includes(type)) {
+  if (['new_lesson', 'course_update', 'new_course', 'access_granted', 'access_revoked', 'progress_milestone'].includes(type)) {
     return 'course';
   }
   if (type === 'certificate') return 'certificate';
+  if (type === 'task' || type === 'task_review') return 'tasks';
   return 'other';
 }
 
@@ -81,14 +90,15 @@ function timeOf(dateString) {
 }
 
 export default function Notifications() {
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, loadMore, hasMore, loadingMore } = useNotifications();
+  const { isAdmin } = useAuth();
   const navigate = useNavigate();
   const [filter, setFilter] = useState('all');
 
-  usePageMeta('Notifications', 'Course updates, certificates, tasks and events.');
+  usePageMeta('Notifications', 'Course updates, tasks, payments, events and certificates.');
 
   const counts = useMemo(() => {
-    const tally = { all: notifications.length, unread: unreadCount, course: 0, certificate: 0, other: 0 };
+    const tally = { all: notifications.length, unread: unreadCount, course: 0, tasks: 0, certificate: 0, other: 0 };
     for (const notification of notifications) tally[groupOf(notification.type)] += 1;
     return tally;
   }, [notifications, unreadCount]);
@@ -119,6 +129,8 @@ export default function Notifications() {
   };
 
   const tabs = FILTERS.map((f) => ({ ...f, count: counts[f.value] }));
+
+  if (isAdmin) return <Navigate to="/admin/notifications" replace />;
 
   return (
     <div className="space-y-6">
@@ -206,6 +218,15 @@ export default function Notifications() {
               </ul>
             </section>
           ))}
+        </div>
+      )}
+
+      {/* The bell keeps the newest 20; older ones load on request. */}
+      {hasMore && filter !== 'unread' && (
+        <div className="text-center">
+          <Button variant="secondary" size="sm" loading={loadingMore} onClick={loadMore}>
+            Load older notifications
+          </Button>
         </div>
       )}
     </div>

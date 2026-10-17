@@ -1,5 +1,6 @@
 const Lesson = require('../models/Lesson');
 const CourseAccess = require('../models/CourseAccess');
+const { isGrantLive } = require('../services/enrolmentService');
 
 
 function requireCourseAccess(resolveCourseId) {
@@ -18,6 +19,9 @@ function requireCourseAccess(resolveCourseId) {
 
       if (!grant) {
         return res.status(403).json({ error: 'You do not have access to this course' });
+      }
+      if (!isGrantLive(grant)) {
+        return res.status(403).json({ error: 'Your access to this course has expired' });
       }
 
       req.courseId = courseId;

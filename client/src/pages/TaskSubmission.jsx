@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   AlertCircle,
+  CalendarClock,
   CheckCircle2,
   ClipboardList,
   Clock,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import {
   createSubmission,
+  getAssignments,
   getMySubmissions,
   getSubmissionCategories,
   toErrorMessage,
@@ -43,13 +45,17 @@ const STATUS_META = {
   needs_revision: { label: 'Needs revision', tone: 'warning', icon: RotateCcw },
 };
 
-const EMPTY = { category: '', title: '', description: '', driveLink: '', courseId: '' };
+const EMPTY = { category: '', title: '', description: '', driveLink: '', courseId: '', assignmentId: '' };
+
+const formatDue = (value) =>
+  new Date(value).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 export default function TaskSubmission() {
   const { courses } = useCourses();
 
   const [categories, setCategories] = useState([]);
   const [submissions, setSubmissions] = useState([]);
+  const [assignments, setAssignments] = useState([]);
   const [status, setStatus] = useState('loading');
   const [loadError, setLoadError] = useState('');
 
@@ -61,10 +67,11 @@ export default function TaskSubmission() {
   usePageMeta('Task Submission', 'Submit your work for review.');
 
   const load = () =>
-    Promise.all([getSubmissionCategories(), getMySubmissions()])
-      .then(([meta, mine]) => {
+    Promise.all([getSubmissionCategories(), getMySubmissions(), getAssignments().catch(() => [])])
+      .then(([meta, mine, tasks]) => {
         setCategories(meta.categories || []);
         setSubmissions(mine);
+        setAssignments(tasks);
         setStatus('ready');
       })
       .catch((err) => {
@@ -95,9 +102,16 @@ export default function TaskSubmission() {
         description: form.description,
         driveLink: form.driveLink,
         courseId: form.courseId || undefined,
+        assignmentId: form.assignmentId || undefined,
       });
 
-      setSubmissions((prev) => [created, ...prev]);
+      const task = assignments.find((a) => a.id === form.assignmentId);
+      setSubmissions((prev) => [{ ...created, assignmentId: task || null }, ...prev]);
+      if (task) {
+        setAssignments((prev) =>
+          prev.map((a) => (a.id === task.id ? { ...a, mySubmission: { status: 'submitted', score: null } } : a))
+        );
+      }
       setForm(EMPTY);
       setSuccess('Submitted. Your coordinator can now review it.');
     } catch (err) {
@@ -136,8 +150,57 @@ export default function TaskSubmission() {
         </p>
       </div>
 
+      {/* --- tasks set by the coordinator ------------------------------- */}
+      {assignments.length > 0 && (
+        <section>
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-ink-900">
+            <CalendarClock className="h-5 w-5 text-primary-600" aria-hidden="true" />
+            Your tasks
+          </h3>
+          <ul className="mt-4 grid gap-3 md:grid-cols-2">
+            {assignments.map((task) => {
+              const overdue = task.dueDate && new Date(task.dueDate) < new Date();
+              const mine = task.mySubmission;
+              const meta = mine ? STATUS_META[mine.status] || STATUS_META.submitted : null;
+              return (
+                <li key={task.id} className="card flex flex-col p-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {task.courseId?.title && <Badge tone="primary">{task.courseId.title}</Badge>}
+                    {task.dueDate && (
+                      <Badge tone={overdue && !mine ? 'error' : 'neutral'} icon={Clock}>
+                        {overdue ? 'Was due' : 'Due'} {formatDue(task.dueDate)}
+                      </Badge>
+                    )}
+                    {meta && <Badge tone={meta.tone}>{meta.label}</Badge>}
+                  </div>
+                  <p className="mt-2.5 text-sm font-semibold text-ink-900">{task.title}</p>
+                  {task.description && (
+                    <p className="mt-1 line-clamp-3 whitespace-pre-line text-[13px] leading-relaxed text-ink-600">{task.description}</p>
+                  )}
+                  <div className="mt-auto flex items-center justify-between gap-3 pt-4">
+                    <span className="text-[12px] text-ink-500">
+                      {mine && mine.score !== null && mine.score !== undefined ? `Score ${mine.score}/${task.maxScore}` : `Out of ${task.maxScore}`}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant={mine ? 'secondary' : 'primary'}
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, assignmentId: task.id, courseId: task.courseId?._id || '', title: prev.title || task.title }));
+                        document.getElementById('submission-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                    >
+                      {mine ? 'Submit again' : 'Submit work'}
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {/* --- the form ------------------------------------------------- */}
-      <section className="card p-6">
+      <section id="submission-form" className="card scroll-mt-24 p-6">
         <h3 className="flex items-center gap-2 text-base font-semibold text-ink-900">
           <Send className="h-4 w-4 text-primary-600" aria-hidden="true" />
           Submit a task
@@ -155,6 +218,31 @@ export default function TaskSubmission() {
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               {success}
             </p>
+          )}
+
+          {assignments.length > 0 && (
+            <div>
+              <label className="field-label" htmlFor="submission-task">
+                Task (optional)
+              </label>
+              <select
+                id="submission-task"
+                className="field-input"
+                value={form.assignmentId}
+                onChange={(event) => {
+                  const task = assignments.find((a) => a.id === event.target.value);
+                  setForm((prev) => ({ ...prev, assignmentId: event.target.value, courseId: task?.courseId?._id || prev.courseId }));
+                }}
+              >
+                <option value="">Not for a specific task</option>
+                {assignments.map((task) => (
+                  <option key={task.id} value={task.id}>
+                    {task.title}
+                    {task.dueDate ? ` — due ${formatDue(task.dueDate)}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -189,6 +277,7 @@ export default function TaskSubmission() {
                 className="field-input"
                 value={form.courseId}
                 onChange={set('courseId')}
+                disabled={Boolean(assignments.find((a) => a.id === form.assignmentId)?.courseId)}
               >
                 <option value="">Not course-specific</option>
                 {courses
@@ -297,10 +386,13 @@ export default function TaskSubmission() {
                         )}
                       </div>
 
-                      {submission.title && (
+                      {(submission.assignmentId?.title || submission.title) && (
                         <p className="mt-2.5 text-sm font-semibold text-ink-900">
-                          {submission.title}
+                          {submission.assignmentId?.title || submission.title}
                         </p>
+                      )}
+                      {submission.assignmentId?.title && submission.title && (
+                        <p className="text-[13px] text-ink-700">{submission.title}</p>
                       )}
                       <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink-600">
                         {submission.description}
@@ -340,11 +432,18 @@ export default function TaskSubmission() {
                     </div>
                   </div>
 
-                  {submission.feedback && (
+                  {(submission.feedback || (submission.score !== null && submission.score !== undefined)) && (
                     <div className="mt-4 rounded-lg bg-surface-muted p-3.5">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-                        Reviewer feedback
-                      </p>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+                          Reviewer feedback
+                        </p>
+                        {submission.score !== null && submission.score !== undefined && (
+                          <Badge tone="primary">
+                            Score {submission.score}/{submission.assignmentId?.maxScore || 100}
+                          </Badge>
+                        )}
+                      </div>
                       <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink-700">
                         {submission.feedback}
                       </p>

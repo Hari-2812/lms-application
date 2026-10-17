@@ -3,6 +3,7 @@ const Lesson = require('../models/Lesson');
 const Progress = require('../models/Progress');
 const CourseAccess = require('../models/CourseAccess');
 const Enrollment = require('../models/Enrollment');
+const { isGrantLive } = require('../services/enrolmentService');
 
 /**
  * Attach lesson counts, this student's completion percentage, and whether
@@ -34,7 +35,8 @@ async function decorateCourses(courses, student) {
     const key = String(row.courseId);
     completedByCourse.set(key, (completedByCourse.get(key) || 0) + 1);
   }
-  const accessByCourse = new Set(accessRows.map((r) => String(r.courseId)));
+  // Expired grants (Settings → access duration) no longer count as access.
+  const accessByCourse = new Set(accessRows.filter(isGrantLive).map((r) => String(r.courseId)));
 
   return courses.map((course) => {
     const key = String(course._id);
@@ -81,6 +83,9 @@ async function getCourse(req, res, next) {
     if (req.user) {
       const enrollment = await Enrollment.findOne({ studentId: req.user._id, courseId: course._id });
       decorated.enrollmentStatus = enrollment?.status || null;
+      // A pending Razorpay order is a checkout the learner can simply retry;
+      // a pending manual one is waiting on an admin.
+      decorated.enrollmentGateway = enrollment?.gateway || null;
     }
 
     res.json(decorated);

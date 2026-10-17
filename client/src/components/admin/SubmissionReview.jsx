@@ -1,22 +1,23 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, ClipboardList, ExternalLink, Loader2, Send } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ClipboardCheck, ExternalLink, Send } from 'lucide-react';
 import { getAllSubmissions, reviewSubmission, toErrorMessage } from '../../api/client';
-import Badge from '../common/Badge.jsx';
 import Button from '../common/Button.jsx';
-import Tabs from '../common/Tabs.jsx';
+import { AdminTabs, EmptyRow, LoadingRow, Panel, Pill, formatDate, useFlash } from './ui.jsx';
 
 /**
- * The coordinator's review queue for student task submissions.
+ * The review queue for learner task submissions.
  *
- * Each row carries the Drive link, the student's description and a place to
- * set an outcome with feedback. Changing the status notifies the student.
+ * Each row carries the Drive link, the learner's description, and a place to
+ * set an outcome with feedback and a score. Accepting or sending back
+ * notifies the learner with the feedback and score.
  */
 
 const STATUS_META = {
-  submitted: { label: 'Submitted', tone: 'neutral' },
-  under_review: { label: 'Under review', tone: 'primary' },
-  accepted: { label: 'Accepted', tone: 'success' },
-  needs_revision: { label: 'Needs revision', tone: 'warning' },
+  submitted: { label: 'New', tone: 'blue' },
+  under_review: { label: 'Under review', tone: 'blue' },
+  accepted: { label: 'Accepted', tone: 'green' },
+  needs_revision: { label: 'Needs revision', tone: 'amber' },
 };
 
 const FILTERS = [
@@ -27,189 +28,172 @@ const FILTERS = [
   { value: 'needs_revision', label: 'Needs revision' },
 ];
 
-export default function SubmissionReview() {
+export default function SubmissionReview({ refreshKey = 0 }) {
+  const flash = useFlash();
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('');
-  const [error, setError] = useState('');
-  // Per-row draft feedback, so typing in one row never touches another.
+  const [filter, setFilter] = useState('submitted');
+  // Per-row drafts, so typing in one row never touches another.
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
 
-  const load = (status) => {
-    setLoading(true);
-    getAllSubmissions(status ? { status } : undefined)
-      .then(setSubmissions)
-      .catch((err) => setError(toErrorMessage(err)))
-      .finally(() => setLoading(false));
-  };
-
+  const showError = flash.error;
   useEffect(() => {
-    load(filter);
-  }, [filter]);
+    setLoading(true);
+    getAllSubmissions(filter ? { status: filter } : undefined)
+      .then(setSubmissions)
+      .catch((err) => showError(toErrorMessage(err)))
+      .finally(() => setLoading(false));
+  }, [filter, refreshKey, showError]);
+
+  const draftOf = (s) => drafts[s.id] || {};
+  const setDraft = (s, patch) => setDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], ...patch } }));
 
   const handleReview = async (submission, status) => {
+    const draft = draftOf(submission);
+    const scoreText = draft.score ?? (submission.score ?? '');
     setSavingId(submission.id);
-    setError('');
 
     try {
       const updated = await reviewSubmission(submission.id, {
         status,
-        feedback: drafts[submission.id] ?? submission.feedback ?? '',
+        feedback: draft.feedback ?? submission.feedback ?? '',
+        score: scoreText === '' ? null : Number(scoreText),
       });
 
       // A filtered view should drop a row that no longer matches it.
       setSubmissions((prev) =>
         filter && updated.status !== filter
           ? prev.filter((s) => s.id !== submission.id)
-          : prev.map((s) => (s.id === submission.id ? { ...updated, studentId: s.studentId, courseId: s.courseId } : s))
+          : prev.map((s) => (s.id === submission.id ? { ...s, ...updated, studentId: s.studentId, courseId: s.courseId, assignmentId: s.assignmentId } : s))
       );
       setDrafts((prev) => ({ ...prev, [submission.id]: undefined }));
+      flash.success(
+        status === 'under_review'
+          ? 'Marked as under review.'
+          : `Review saved — ${submission.studentId?.name || 'the learner'} has been notified.`
+      );
     } catch (err) {
-      setError(toErrorMessage(err));
+      flash.error(toErrorMessage(err));
     } finally {
       setSavingId(null);
     }
   };
 
-  const pending = submissions.filter((s) => s.status === 'submitted').length;
-
   return (
-    <section id="submissions" className="card scroll-mt-20 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 p-6">
-        <div>
-          <h2 className="flex items-center gap-2 text-base font-semibold text-ink-900">
-            <ClipboardList className="h-4 w-4 text-primary-600" aria-hidden="true" />
-            Task submissions
-          </h2>
-          <p className="mt-1 text-[13px] text-ink-500">
-            Student work submitted as Drive links. Changing the status notifies the student.
-          </p>
-        </div>
-        {pending > 0 && <Badge tone="warning">{pending} awaiting review</Badge>}
+    <Panel
+      id="submissions"
+      icon={ClipboardCheck}
+      title="Review queue"
+      description="Learner work submitted as Drive links. Your feedback and score are sent to the learner."
+      bodyClassName=""
+    >
+      <div className="border-b border-ink-100 px-5 py-3 sm:px-6">
+        <AdminTabs tabs={FILTERS} value={filter} onChange={setFilter} />
       </div>
 
-      <div className="border-b border-ink-100 px-6 py-3">
-        <Tabs tabs={FILTERS} value={filter} onChange={setFilter} />
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 border-b border-red-100 bg-red-50 px-6 py-3 text-[13px] text-red-700">
-          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-          {error}
-        </div>
-      )}
+      {flash.node && <div className="px-5 pt-4 sm:px-6">{flash.node}</div>}
 
       {loading ? (
-        <div className="flex items-center gap-2 p-6 text-sm text-ink-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading submissions...
-        </div>
+        <LoadingRow label="Loading submissions…" />
       ) : submissions.length === 0 ? (
-        <p className="p-6 text-sm text-ink-500">
-          {filter ? 'Nothing in this state.' : 'No submissions yet.'}
-        </p>
+        <EmptyRow icon={ClipboardCheck} title={filter ? 'Nothing in this state' : 'No submissions yet'} />
       ) : (
         <div className="divide-y divide-ink-100">
           {submissions.map((submission) => {
             const meta = STATUS_META[submission.status] || STATUS_META.submitted;
-            const draft = drafts[submission.id] ?? submission.feedback ?? '';
+            const draft = draftOf(submission);
+            const maxScore = submission.assignmentId?.maxScore || 100;
+            const late =
+              submission.assignmentId?.dueDate && new Date(submission.createdAt) > new Date(submission.assignmentId.dueDate);
+            const busy = savingId === submission.id;
 
             return (
-              <div key={submission.id} className="p-6">
+              <article key={submission.id} className="p-5 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="primary">{submission.category}</Badge>
-                      <Badge tone={meta.tone}>{meta.label}</Badge>
-                      {submission.courseId?.title && (
-                        <Badge tone="neutral">{submission.courseId.title}</Badge>
-                      )}
+                      <Pill tone={meta.tone}>{meta.label}</Pill>
+                      <Pill tone="gray">{submission.category}</Pill>
+                      {submission.courseId?.title && <Pill tone="blue">{submission.courseId.title}</Pill>}
+                      {late && <Pill tone="red">Submitted late</Pill>}
                     </div>
 
-                    <p className="mt-2.5 text-sm font-semibold text-ink-900">
-                      {submission.studentId?.name || 'Unknown student'}
-                      <span className="font-normal text-ink-500">
-                        {' '}
-                        · {submission.studentId?.email}
-                      </span>
+                    <p className="mt-3 text-sm font-semibold text-ink-900">
+                      {submission.assignmentId?.title || submission.title || 'Untitled submission'}
                     </p>
-
-                    {submission.title && (
-                      <p className="mt-1.5 text-sm font-medium text-ink-800">{submission.title}</p>
+                    {submission.assignmentId && submission.title && (
+                      <p className="text-[13px] font-medium text-ink-700">{submission.title}</p>
                     )}
-                    <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink-600">
-                      {submission.description}
+                    <p className="mt-1 text-[13px]">
+                      {submission.studentId ? (
+                        <Link to={`/admin/learners/${submission.studentId.id}`} className="font-medium text-primary-700 hover:text-primary-800">
+                          {submission.studentId.name}
+                        </Link>
+                      ) : (
+                        'Unknown learner'
+                      )}
+                      <span className="text-ink-500"> · {submission.studentId?.email}</span>
                     </p>
+                    <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed text-ink-600">{submission.description}</p>
                     <p className="mt-2 text-[11px] text-ink-400">
-                      {new Date(submission.createdAt).toLocaleString('en-GB', {
-                        dateStyle: 'medium',
-                        timeStyle: 'short',
-                      })}
+                      Submitted {formatDate(submission.createdAt, true)}
+                      {submission.assignmentId?.dueDate ? ` · due ${formatDate(submission.assignmentId.dueDate, true)}` : ''}
                     </p>
                   </div>
 
-                  <Button
-                    href={submission.driveLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    size="sm"
-                    variant="secondary"
-                  >
+                  <Button href={submission.driveLink} target="_blank" rel="noopener noreferrer" size="sm" variant="secondary">
                     Open submission
                     <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 </div>
 
-                <div className="mt-4 rounded-lg bg-surface-muted p-4">
-                  <label className="field-label" htmlFor={`feedback-${submission.id}`}>
-                    Feedback to the student
-                  </label>
-                  <textarea
-                    id={`feedback-${submission.id}`}
-                    className="field-input min-h-[70px] resize-y bg-white"
-                    value={draft}
-                    onChange={(e) =>
-                      setDrafts((prev) => ({ ...prev, [submission.id]: e.target.value }))
-                    }
-                    maxLength={2000}
-                    placeholder="What was good, what to change…"
-                  />
+                <div className="mt-4 grid gap-3 rounded-lg border border-ink-100 bg-ink-50/50 p-4 md:grid-cols-[1fr_9rem]">
+                  <div>
+                    <label className="field-label" htmlFor={`feedback-${submission.id}`}>Feedback to the learner</label>
+                    <textarea
+                      id={`feedback-${submission.id}`}
+                      className="field-input min-h-[70px] resize-y bg-white"
+                      value={draft.feedback ?? submission.feedback ?? ''}
+                      onChange={(e) => setDraft(submission, { feedback: e.target.value })}
+                      maxLength={2000}
+                      placeholder="What was good, what to change…"
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor={`score-${submission.id}`}>Score / {maxScore}</label>
+                    <input
+                      id={`score-${submission.id}`}
+                      type="number"
+                      min={0}
+                      max={maxScore}
+                      className="field-input bg-white"
+                      value={draft.score ?? (submission.score ?? '')}
+                      onChange={(e) => setDraft(submission, { score: e.target.value })}
+                      placeholder="—"
+                    />
+                  </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      loading={savingId === submission.id}
-                      disabled={savingId === submission.id}
-                      onClick={() => handleReview(submission, 'under_review')}
-                    >
-                      Mark reviewing
-                    </Button>
-                    <Button
-                      size="sm"
-                      loading={savingId === submission.id}
-                      disabled={savingId === submission.id}
-                      onClick={() => handleReview(submission, 'accepted')}
-                    >
+                  <div className="flex flex-wrap gap-2 md:col-span-2">
+                    <Button size="sm" loading={busy} disabled={busy} onClick={() => handleReview(submission, 'accepted')}>
                       <Send className="h-3.5 w-3.5" aria-hidden="true" />
-                      Accept
+                      Accept &amp; send
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      loading={savingId === submission.id}
-                      disabled={savingId === submission.id}
-                      onClick={() => handleReview(submission, 'needs_revision')}
-                    >
+                    <Button size="sm" variant="secondary" loading={busy} disabled={busy} onClick={() => handleReview(submission, 'needs_revision')}>
                       Needs revision
                     </Button>
+                    {submission.status === 'submitted' && (
+                      <Button size="sm" variant="ghost" loading={busy} disabled={busy} onClick={() => handleReview(submission, 'under_review')}>
+                        Mark reviewing
+                      </Button>
+                    )}
                   </div>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
       )}
-    </section>
+    </Panel>
   );
 }

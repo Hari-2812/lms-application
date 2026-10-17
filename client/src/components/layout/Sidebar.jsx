@@ -10,6 +10,7 @@ import {
   FileText,
   Heart,
   LayoutDashboard,
+  LayoutGrid,
   LifeBuoy,
   LogOut,
   Settings,
@@ -42,7 +43,7 @@ const accountLinks = [
 ];
 
 function Nav({ onNavigate, onClose }) {
-  const { signOut } = useAuth();
+  const { signOut, isAdmin } = useAuth();
   const { count } = useWishlist();
   const { unreadCount } = useNotifications();
 
@@ -93,6 +94,17 @@ function Nav({ onNavigate, onClose }) {
       </div>
 
       <nav aria-label="Dashboard" className="scrollbar-slim flex-1 overflow-y-auto p-3">
+        {/* Staff previewing the learner view get a way back to the admin panel. */}
+        {isAdmin && (
+          <NavLink
+            to="/admin"
+            onClick={onNavigate}
+            className="mb-3 flex items-center gap-3 rounded-lg bg-primary-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-700"
+          >
+            <LayoutGrid className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+            Admin panel
+          </NavLink>
+        )}
         <p className="px-3 pb-2 pt-2 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
           Learning
         </p>

@@ -3,8 +3,8 @@ const Progress = require('../models/Progress');
 const Course = require('../models/Course');
 const { notifyUser } = require('../services/notificationService');
 const certificateService = require('../services/certificateService');
+const settingsService = require('../services/settingsService');
 
-const COMPLETE_AT_PERCENT = 90; // "watched enough" threshold for the demo
 const MILESTONES = [50, 100];
 
 /**
@@ -49,9 +49,11 @@ async function saveProgress(req, res, next) {
 
     const percent = duration > 0 ? Math.min(100, Math.round((position / duration) * 100)) : 0;
 
+    // "Watched enough" threshold — Settings → Learning rules.
+    const { learning } = await settingsService.get();
     const existing = await Progress.findOne({ studentId: req.student.id, lessonId });
     const wasCompleted = existing?.completed ?? false;
-    const completed = wasCompleted || percent >= COMPLETE_AT_PERCENT;
+    const completed = wasCompleted || percent >= learning.lessonCompletePercent;
 
     const progress = await Progress.findOneAndUpdate(
       { studentId: req.student.id, lessonId },

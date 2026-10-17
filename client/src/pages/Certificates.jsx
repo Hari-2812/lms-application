@@ -91,7 +91,11 @@ export default function Certificates() {
       {/* This wrapper is the print target: usePrintCertificate tags it and
           the print stylesheet hides everything outside it. */}
       <div ref={(node) => { faceRefs.current[certificate.id] = node; }}>
-        <CertificateFace certificate={certificate} />
+        {/* An earned certificate carries the learner's current profile name;
+            a sample keeps whatever name was typed into the sample form. */}
+        <CertificateFace
+          certificate={certificate.kind === 'course' ? { ...certificate, holderName: student?.name } : certificate}
+        />
       </div>
 
       <div
@@ -215,13 +219,7 @@ export default function Certificates() {
  */
 function SampleGenerator({ defaultName, courses, onGenerated }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    recipientName: defaultName,
-    courseTitle: '',
-    instructor: '',
-    lessonCount: '',
-    hours: '',
-  });
+  const [form, setForm] = useState({ recipientName: defaultName, courseTitle: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [generated, setGenerated] = useState(null);
@@ -237,9 +235,6 @@ function SampleGenerator({ defaultName, courses, onGenerated }) {
       const certificate = await generateSampleCertificate({
         recipientName: form.recipientName,
         courseTitle: form.courseTitle,
-        instructor: form.instructor,
-        lessonCount: form.lessonCount === '' ? 0 : Number(form.lessonCount),
-        hours: form.hours === '' ? 0 : Number(form.hours),
       });
 
       setGenerated(certificate);
@@ -255,7 +250,7 @@ function SampleGenerator({ defaultName, courses, onGenerated }) {
 
   const reset = () => {
     setGenerated(null);
-    setForm({ recipientName: defaultName, courseTitle: '', instructor: '', lessonCount: '', hours: '' });
+    setForm({ recipientName: defaultName, courseTitle: '' });
   };
 
   return (
@@ -355,34 +350,8 @@ function SampleGenerator({ defaultName, courses, onGenerated }) {
                   </datalist>
                 </div>
 
-                <Input
-                  label="Instructor (optional)"
-                  maxLength={80}
-                  value={form.instructor}
-                  onChange={set('instructor')}
-                  placeholder="e.g. Vasanth Kumar"
-                />
-
-                <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    label="Lessons"
-                    type="number"
-                    min="0"
-                    value={form.lessonCount}
-                    onChange={set('lessonCount')}
-                    placeholder="12"
-                  />
-                  <Input
-                    label="Hours"
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={form.hours}
-                    onChange={set('hours')}
-                    placeholder="8"
-                  />
-                </div>
               </div>
+              <p className="text-xs text-ink-500">The month and year are filled in from the day you download it.</p>
 
               <div className="flex flex-wrap items-center gap-2.5">
                 <Button type="submit" loading={submitting} disabled={submitting}>

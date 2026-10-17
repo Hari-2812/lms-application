@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as authApi from '../api/client';
-import { getMe, setAuthToken, setUnauthorizedHandler } from '../api/client';
+import { getMe, setAuthToken, setUnauthorizedHandler, updateMe } from '../api/client';
 
 /**
  * Single source of truth for "who is signed in".
@@ -56,8 +56,8 @@ export function AuthProvider({ children }) {
     setAuthToken(stored.token);
     getMe()
       .then((student) => {
-        // Keep any locally edited profile fields the backend doesn't store yet.
-        const next = { ...stored, student: { ...student, ...stored.student } };
+        // The server is the source of truth for the profile, role and status.
+        const next = { ...stored, student: { ...stored.student, ...student } };
         setSession(next);
         writeStoredSession(next);
       })
@@ -110,10 +110,10 @@ export function AuthProvider({ children }) {
   );
 
   const signUp = useCallback(
-    async ({ firstName, lastName, email, password }) => {
+    async ({ firstName, lastName, email, password, phone }) => {
       const name = `${firstName} ${lastName}`.trim();
       try {
-        const data = await authApi.register({ firstName, lastName, name, email, password });
+        const data = await authApi.register({ firstName, lastName, name, email, password, phone });
         return establish(data.student ?? data.user ?? data, data.token).student;
       } catch (err) {
         if (!isMissingRoute(err)) throw err;
@@ -146,11 +146,24 @@ export function AuthProvider({ children }) {
     return () => setUnauthorizedHandler(null);
   }, []);
 
-  /** Local profile edits — persisted to the session until the API supports it. */
-  const updateProfile = useCallback((patch) => {
+  /** Saves profile fields to the server and keeps the session in step. */
+  const updateProfile = useCallback(async (patch) => {
+    const saved = await updateMe(patch);
     setSession((prev) => {
       if (!prev) return prev;
-      const next = { ...prev, student: { ...prev.student, ...patch } };
+      const next = { ...prev, student: { ...prev.student, ...saved } };
+      writeStoredSession(next);
+      return next;
+    });
+    return saved;
+  }, []);
+
+  /** A password change revokes older tokens; this swaps in the fresh one. */
+  const replaceToken = useCallback((token) => {
+    setAuthToken(token);
+    setSession((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, token };
       writeStoredSession(next);
       return next;
     });
@@ -166,8 +179,11 @@ export function AuthProvider({ children }) {
       signUp,
       signOut,
       updateProfile,
+      replaceToken,
+      isAdmin: session?.student?.role === 'admin',
+      isSuperAdmin: session?.student?.role === 'admin' && (session?.student?.adminRole || 'super_admin') === 'super_admin',
     }),
-    [session, initialising, signIn, signUp, signOut, updateProfile]
+    [session, initialising, signIn, signUp, signOut, updateProfile, replaceToken]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

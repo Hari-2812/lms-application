@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, ArrowRight, Lock, Mail, User } from 'lucide-react';
+import { AlertCircle, ArrowRight, Lock, Mail, Phone, User } from 'lucide-react';
 import AuthLayout from '../components/layout/AuthLayout.jsx';
 import Button from '../components/common/Button.jsx';
 import Checkbox from '../components/common/Checkbox.jsx';
@@ -20,6 +20,7 @@ const initialForm = {
   firstName: '',
   lastName: '',
   email: '',
+  phone: '',
   password: '',
   confirmPassword: '',
   terms: false,
@@ -65,6 +66,7 @@ export default function Register() {
     if (!form.lastName.trim()) next.lastName = 'Enter your last name';
     if (!form.email.trim()) next.email = 'Enter your email address';
     else if (!emailPattern.test(form.email)) next.email = 'Enter a valid email address';
+    if (form.phone && !/^[+\d][\d\s-]{6,19}$/.test(form.phone.trim())) next.phone = 'Enter a valid phone number';
     if (!form.password) next.password = 'Choose a password';
     else if (form.password.length < 8) next.password = 'Use at least 8 characters';
     if (form.confirmPassword !== form.password) next.confirmPassword = 'Passwords do not match';
@@ -153,6 +155,19 @@ export default function Register() {
         />
 
         <Input
+          label="Phone number (optional)"
+          type="tel"
+          name="phone"
+          autoComplete="tel"
+          placeholder="+91 98765 43210"
+          icon={Phone}
+          value={form.phone}
+          onChange={setField('phone')}
+          error={errors.phone}
+          hint="So our team can reach you about your enrolment."
+        />
+
+        <Input
           label="Password"
           type="password"
           name="password"
@@ -205,11 +220,6 @@ export default function Register() {
       </form>
 
       {/* No social sign-up button: the backend has no OAuth provider yet. */}
-      <p className="mt-6 rounded-lg bg-surface-muted p-3.5 text-[13px] leading-relaxed text-ink-600">
-        <strong className="font-semibold text-ink-800">Demo build:</strong> accounts are not
-        persisted server-side yet — registering signs you in as the demo student so you can explore
-        the full dashboard.
-      </p>
     </AuthLayout>
   );
 }

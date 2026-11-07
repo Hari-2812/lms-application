@@ -8,6 +8,7 @@ import {
   Copy,
   CreditCard,
   ExternalLink,
+  FolderOpen,
   KeyRound,
   Mail,
   MapPin,
@@ -20,9 +21,12 @@ import {
 } from 'lucide-react';
 import {
   enrolLearner,
+  getAllResources,
   getCourses,
   getLearner,
   resetUserPassword,
+  setLearnerFullAccess,
+  setLearnerMaterials,
   setLearnerStatus,
   toErrorMessage,
   unenrolLearner,
@@ -42,6 +46,7 @@ import {
   Pill,
   ProgressMeter,
   StatTile,
+  Toggle,
   formatDate,
   formatMethod,
   formatMoney,
@@ -56,7 +61,7 @@ const SUBMISSION_STATUS = {
   needs_revision: { label: 'Needs revision', tone: 'amber' },
 };
 
-const SOURCE_LABEL = { payment: 'Paid', free: 'Free course', manual: 'Manual', bulk: 'Bulk' };
+const SOURCE_LABEL = { payment: 'Paid', free: 'Free course', manual: 'Granted by admin', bulk: 'Bulk', full: 'Full Access' };
 
 /** One learner's full record, and the Super Admin actions on it. */
 export default function AdminLearnerDetail() {
@@ -71,6 +76,8 @@ export default function AdminLearnerDetail() {
   const [enrolCourseId, setEnrolCourseId] = useState('');
   const [busy, setBusy] = useState('');
   const [tempPassword, setTempPassword] = useState('');
+  const [allResources, setAllResources] = useState(null);
+  const [materialPicks, setMaterialPicks] = useState(null); // Set of resource ids while editing
 
   const load = useCallback(
     () =>
@@ -87,6 +94,20 @@ export default function AdminLearnerDetail() {
     load();
     getCourses().then(setCourses).catch(() => {});
   }, [load]);
+
+  // The material picker loads every resource the first time its tab opens.
+  useEffect(() => {
+    if (tab !== 'materials' || allResources) return;
+    getAllResources()
+      .then(setAllResources)
+      .catch((err) => flash.error(toErrorMessage(err)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once, on first open
+  }, [tab]);
+
+  // Start each edit from what is saved.
+  useEffect(() => {
+    if (record) setMaterialPicks(new Set((record.materials || []).map((m) => String(m.resourceId))));
+  }, [record]);
 
   usePageMeta(record ? record.learner.name : 'Learner', 'Learner record');
 
@@ -160,8 +181,40 @@ export default function AdminLearnerDetail() {
     run(`remove-${course.courseId}`, () => unenrolLearner(learner.id, course.courseId), `Access to "${course.title}" removed.`);
   };
 
+  const toggleFullAccess = (enabled) => {
+    const message = enabled
+      ? `Give ${learner.name} Full Access? They can open every published course and material, including courses added later.`
+      : `End ${learner.name}'s Full Access? Courses they paid for or were given individually stay available.`;
+    if (!window.confirm(message)) return;
+    run(
+      'full',
+      () => setLearnerFullAccess(learner.id, enabled),
+      enabled ? `${learner.name} now has Full Access and has been notified.` : `Full Access ended for ${learner.name}.`
+    );
+  };
+
+  const saveMaterials = () =>
+    run('materials', () => setLearnerMaterials(learner.id, [...materialPicks]), (r) =>
+      r.added || r.removed
+        ? `Shared materials updated: ${r.added} added, ${r.removed} removed. ${r.added ? 'The learner has been notified.' : ''}`
+        : 'No changes to save.'
+    );
+
+  const togglePick = (id) =>
+    setMaterialPicks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const savedPicks = new Set((record.materials || []).map((m) => String(m.resourceId)));
+  const picksChanged =
+    materialPicks && (materialPicks.size !== savedPicks.size || [...materialPicks].some((id) => !savedPicks.has(id)));
+
   const tabs = [
     { value: 'courses', label: 'Courses & progress', icon: BookOpen, count: liveCourses.length },
+    { value: 'materials', label: 'Shared materials', icon: FolderOpen, count: record.materials?.length || 0 },
     { value: 'payments', label: 'Payments', icon: CreditCard, count: enrollments.length },
     { value: 'tasks', label: 'Task submissions', icon: ClipboardList, count: submissions.length },
     { value: 'certificates', label: 'Certificates', icon: Award, count: certificates.length },
@@ -255,6 +308,26 @@ export default function AdminLearnerDetail() {
 
       {/* --- courses -------------------------------------------------------- */}
       {tab === 'courses' && (
+        <Panel
+          title="Course access"
+          description="Full Access opens every course and material. Otherwise grant courses one at a time below (Limited Access), share individual materials from the Shared materials tab, or let the learner buy a course — a successful payment unlocks it automatically."
+        >
+          <Toggle
+            id="full-access"
+            label="Full Access — all courses and materials"
+            description={
+              learner.fullAccess
+                ? `On since ${formatDate(learner.fullAccessGrantedAt)}. Includes courses added later.`
+                : 'Off. The learner can open only the courses listed below.'
+            }
+            checked={Boolean(learner.fullAccess)}
+            disabled={!isSuperAdmin || busy === 'full'}
+            onChange={toggleFullAccess}
+          />
+        </Panel>
+      )}
+
+      {tab === 'courses' && (
         <Panel icon={BookOpen} title="Enrolled courses & progress" bodyClassName="">
           {isSuperAdmin && (
             <form onSubmit={enrol} className="flex flex-col gap-3 border-b border-ink-100 px-5 py-4 sm:flex-row sm:items-center sm:px-6">
@@ -326,7 +399,9 @@ export default function AdminLearnerDetail() {
                       <td className="font-mono text-[12px]">{course.certificateSerial || '—'}</td>
                       {isSuperAdmin && (
                         <td className="text-right">
-                          {course.live ? (
+                          {course.source === 'full' ? (
+                            <span className="text-[12px] text-ink-400">Via Full Access</span>
+                          ) : course.live ? (
                             <button
                               type="button"
                               onClick={() => removeAccess(course)}
@@ -350,6 +425,76 @@ export default function AdminLearnerDetail() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {/* --- shared materials ------------------------------------------------- */}
+      {tab === 'materials' && (
+        <Panel
+          icon={FolderOpen}
+          title="Shared learning materials"
+          description="Limited Access to materials: tick individual study materials to share with this learner without giving them the whole course. They appear in the learner's Resources page."
+          actions={
+            isSuperAdmin && (
+              <Button size="sm" onClick={saveMaterials} loading={busy === 'materials'} disabled={!picksChanged}>
+                Save shared materials
+              </Button>
+            )
+          }
+          bodyClassName=""
+        >
+          {learner.fullAccess && (
+            <Alert tone="info" className="mx-5 mt-4 sm:mx-6">
+              {learner.name} has Full Access, so every material is already available. Shares saved here only matter if Full Access is turned off.
+            </Alert>
+          )}
+          {!allResources ? (
+            <LoadingRow label="Loading materials…" />
+          ) : allResources.length === 0 ? (
+            <EmptyRow icon={FolderOpen} title="No study materials yet" description="Add them from Courses → Add study material." />
+          ) : (
+            <div className="divide-y divide-ink-100">
+              {Object.values(
+                allResources.reduce((groups, r) => {
+                  const key = String(r.courseId);
+                  (groups[key] ||= { courseId: key, title: r.courseTitle, items: [] }).items.push(r);
+                  return groups;
+                }, {})
+              ).map((group) => {
+                const included = liveCourseIds.has(group.courseId);
+                return (
+                  <div key={group.courseId} role="group" aria-labelledby={`materials-${group.courseId}`} className="px-5 py-4 sm:px-6">
+                    <p id={`materials-${group.courseId}`} className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink-900">
+                      {group.title}
+                      {included && <Pill tone="green">Has this course — all materials included</Pill>}
+                    </p>
+                    <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {group.items.map((r) => {
+                        const id = String(r.id || r._id);
+                        return (
+                          <li key={id}>
+                            <label className={`flex items-start gap-2.5 rounded-lg border p-3 text-[13px] transition ${materialPicks?.has(id) ? 'border-primary-300 bg-primary-50/60' : 'border-ink-200'} ${included || !isSuperAdmin ? 'opacity-60' : 'cursor-pointer hover:border-primary-300'}`}>
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 rounded border-ink-300 text-primary-600"
+                                checked={Boolean(materialPicks?.has(id))}
+                                disabled={!isSuperAdmin}
+                                onChange={() => togglePick(id)}
+                              />
+                              <span className="min-w-0">
+                                <span className="block font-medium text-ink-900">{r.title}</span>
+                                <span className="block text-[11.5px] uppercase tracking-wide text-ink-400">{r.type}</span>
+                              </span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
             </div>
           )}
         </Panel>

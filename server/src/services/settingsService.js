@@ -1,4 +1,5 @@
 const Setting = require('../models/Setting');
+const { checkUrl, extractSpreadsheetId } = require('../utils/url');
 
 /**
  * Platform settings: branding, payment gateway, email, notification switches
@@ -18,8 +19,39 @@ const DEFAULTS = {
   branding: {
     platformName: 'AnalyticsAvenue',
     tagline: 'EduTech',
-    logoUrl: '',
+    // The logo image is fixed in the app (client/public/logos) and is not a
+    // setting. A logoUrl saved by an older version is ignored by merge().
     supportEmail: '',
+  },
+  // The branded panel on the left of the sign-in, sign-up and password pages.
+  loginPage: {
+    heading: 'Learning that remembers where you left off.',
+    description:
+      'Structured lessons, secure video delivery and progress tracking that keeps every course moving forward.',
+    // One bullet per line.
+    points: [
+      'Pick up any lesson exactly where you stopped',
+      'Track completion across every enrolled course',
+      'Earn a certificate when a course is finished',
+    ].join('\n'),
+    // Optional picture under the text — an upcoming batch, an event poster.
+    imageUrl: '',
+    imageAlt: '',
+  },
+  // The landing page hero. An empty image keeps the built-in mentor photo.
+  homepage: {
+    heroImageUrl: '',
+    heroImageAlt: 'Analytics Avenue data expert',
+    // Optional: clicking the image opens this page (an event, an announcement).
+    heroImageLink: '',
+  },
+  // Where "Enroll Now" enquiries are copied. The sheet must be shared (Editor)
+  // with the Google service account the server already uses for Drive.
+  integrations: {
+    googleSheetEnabled: true,
+    googleSheetId: '1Zem5lhcOYiys20LsjTRuIyqTeZD5HLoD-QkM7mKkgao',
+    // Blank = the first tab in the spreadsheet.
+    googleSheetTab: '',
   },
   // Fixed text on the certificate template. The learner name, course name and
   // month/year are filled in per certificate.
@@ -65,6 +97,8 @@ const DEFAULTS = {
       taskSubmitted: true,
       learnerEnrolled: true,
       certificateIssued: true,
+      newEnquiry: true,
+      reviewPosted: true,
     },
     learner: {
       newCourse: true,
@@ -149,6 +183,36 @@ function clampLearning(learning) {
   return learning;
 }
 
+/** Every stored link must be http(s) (or one of our own uploads), never javascript: or data:. */
+const LINK_FIELDS = [
+  ['loginPage', 'imageUrl', 'Sign-in page image', true],
+  ['homepage', 'heroImageUrl', 'Homepage image', true],
+  ['homepage', 'heroImageLink', 'Homepage image link', false],
+];
+
+function badRequest(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+}
+
+/** Validates and normalises the links in an incoming patch, in place. Throws a 400 on a bad one. */
+function validateLinks(clean) {
+  for (const [section, key, label, allowUploads] of LINK_FIELDS) {
+    if (clean[section]?.[key] === undefined) continue;
+    const result = checkUrl(clean[section][key], { allowUploads, label });
+    if (result.error) throw badRequest(result.error);
+    clean[section][key] = result.value;
+  }
+
+  if (clean.integrations?.googleSheetId !== undefined) {
+    const raw = clean.integrations.googleSheetId;
+    const id = extractSpreadsheetId(raw);
+    if (raw && !id) throw badRequest('Paste the Google Sheet link, or the long id from it.');
+    clean.integrations.googleSheetId = id;
+  }
+}
+
 async function get() {
   if (cache) return cache;
   const doc = await Setting.findOne({ key: KEY }).lean();
@@ -170,6 +234,7 @@ async function update(patch, userId) {
       if (clean[section] && clean[section][field] === '') delete clean[section][field];
     }
   }
+  validateLinks(clean);
 
   const next = merge(DEFAULTS, merge(current, clean));
   next.learning = clampLearning(next.learning);
@@ -204,6 +269,8 @@ function forPublic(settings) {
     payments.gateway === 'razorpay' && Boolean(payments.razorpayKeyId && payments.razorpayKeySecret);
   return {
     branding: settings.branding,
+    loginPage: settings.loginPage,
+    homepage: settings.homepage,
     certificate: settings.certificate,
     payments: {
       gateway: razorpayReady ? 'razorpay' : 'manual',

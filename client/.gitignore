@@ -3,3 +3,5 @@ dist/
 .vite/
 *.log
 .env
+# Per-machine overrides, e.g. .env.development.local
+*.local

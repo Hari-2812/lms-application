@@ -549,5 +549,56 @@ and every lesson streams from Google Drive.
   would cache hot byte ranges or mirror files to storage closer to the CDN.
 * **Progress is coarse.** Position is saved every ~8 seconds and a lesson is
   marked complete at 90% watched.
-* Not built, by design: payments, subscriptions, certificates, quizzes,
-  analytics, notifications, chat, live classes, admin panel.
+* Not built yet: subscriptions, quizzes, chat. (Payments, certificates,
+  notifications and the admin panel have since been added — see section 12.)
+
+---
+
+## 12. Access, payments, reviews, enquiries — admin guide (November 2026)
+
+### Course access — three kinds
+
+| Kind | How the admin gives it | What the learner gets |
+| ---- | ---------------------- | --------------------- |
+| **Full Access** | Admin → Learners → a learner → *Course access* switch | Every published course and every study material, including courses added later. Switching it off keeps any course they paid for or were granted. |
+| **Limited Access** | Same page → *Manually enrol in* (whole courses), or the *Shared materials* tab (individual PDFs / slides / links) | Only those courses, or only those materials (materials-only learners cannot play the course's videos). |
+| **Paid Course Access** | Nothing — the learner buys the course | A verified Razorpay payment (checkout callback or webhook) unlocks the course automatically. |
+
+Every gate (lessons, video stream, progress, materials, reviews, tasks,
+event and lesson notifications) checks the same rule in
+`server/src/services/enrolmentService.js → courseAccessFor`.
+
+### Razorpay
+
+Already integrated end to end. To go live:
+
+1. Admin → LMS settings → **Payment gateway** → choose *Razorpay*.
+2. Paste the **Key ID** and **Key secret** (test keys start `rzp_test_`, live keys `rzp_live_`).
+3. In the Razorpay dashboard → Webhooks, add the **Webhook URL** shown on that page with the events
+   `payment.captured`, `payment.failed`, `order.paid`, and paste its secret into **Webhook secret**.
+4. Leave *Auto-enrol on successful payment* on.
+
+### "Enroll Now" enquiries → Google Sheet
+
+The homepage **Enroll Now** button opens a short form. Each response is saved
+in Admin → **Enquiries** and appended as a row to the Google Sheet set in
+Admin → LMS settings → **Google Sheet**. One-time setup:
+
+1. In Google Cloud Console, for the service account's project, enable the **Google Sheets API**.
+2. Share the sheet with the service account address shown on the Google Sheet settings tab, as **Editor**.
+3. Press **Test connection** — it writes the column headings if the sheet is empty.
+
+If the sheet is unreachable, enquiries are still saved and marked *Not in sheet*
+with the reason; use **Retry** / **Copy to sheet** on the Enquiries page once it is fixed.
+
+### Other admin-editable content
+
+* **Sign-in page panel** (heading, text, bullet points, optional image) — LMS settings → Sign-in page.
+* **Homepage hero image** (and an optional click-through link for events) — LMS settings → Homepage.
+* **Reviews** — learners with course access rate a course (1–5 stars + comment) under the lesson video or on
+  the course page; it is live immediately. Admin → **Reviews** can hide, edit (marked "edited by the admin
+  team") or delete any review.
+* **Learner filters** — Admin → Learners filters by access type, progress (not started / in progress /
+  completed) and task status (to submit, overdue, waiting for review, needs revision).
+* **Certificates** — issued automatically on completion and listed under the learner's Certificates page.
+  The sample certificate generator is admin-only (Admin → Certificates).

@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { resolveMediaUrl } from '../../api/client';
 import { useBranding } from '../../context/BrandingContext.jsx';
 
 /**
@@ -155,7 +154,7 @@ function fitted(base, text, comfortable) {
 }
 
 export default function CertificateFace({ certificate, className = '' }) {
-  const { branding, certificate: template } = useBranding();
+  const { certificate: template } = useBranding();
 
   const name = certificate.holderName || certificate.recipientName || 'Learner Name';
   const course = certificate.courseTitle || 'Course Name';
@@ -166,7 +165,8 @@ export default function CertificateFace({ certificate, className = '' }) {
   const titleTop = titleWords.length > 1 ? titleWords.slice(0, -1).join(' ') : titleWords[0];
   const titleBottom = titleWords.length > 1 ? titleWords[titleWords.length - 1] : '';
 
-  const logo = branding.logoUrl ? resolveMediaUrl(branding.logoUrl) : '/logos/logo.svg';
+  // The certificate uses the fixed Analytics Avenue logo (not admin-editable).
+  const logo = '/logos/logo.svg';
 
   return (
     <div className={`aa-cert ${className}`}>

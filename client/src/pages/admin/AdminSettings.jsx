@@ -1,14 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, CreditCard, ImagePlus, Mail, Palette, Save, Send, Settings } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import {
+  Bell,
+  CheckCircle2,
+  Copy,
+  CreditCard,
+  ExternalLink,
+  Home,
+  ImagePlus,
+  LogIn,
+  Mail,
+  Palette,
+  Save,
+  Send,
+  Settings,
+  Sheet,
+} from 'lucide-react';
 import {
   API_ORIGIN,
   getAdminSettings,
   resolveMediaUrl,
   sendTestEmail,
+  testGoogleSheet,
   toErrorMessage,
   updateAdminSettings,
   uploadCourseImage,
 } from '../../api/client';
+import { isValidLink } from '../../utils/url.js';
+import { LOGO_SRC } from '../../components/common/Logo.jsx';
 import { usePageMeta } from '../../components/layout/DashboardLayout.jsx';
 import Button from '../../components/common/Button.jsx';
 import Input from '../../components/common/Input.jsx';
@@ -16,15 +35,20 @@ import { useBranding } from '../../context/BrandingContext.jsx';
 import { AdminTabs, Alert, LoadingRow, PageHeader, Panel, Pill, Toggle, useFlash } from '../../components/admin/ui.jsx';
 
 /**
- * Admin → LMS settings: branding, payment gateway, email and notification
- * switches. Each tab saves only its own section.
+ * Admin → LMS settings: branding, the sign-in page panel, the homepage image,
+ * payment gateway, email and notification switches, and the Google Sheet that
+ * Enroll Now enquiries are copied to. Each tab saves only its own section.
  */
 
 const TABS = [
   { value: 'branding', label: 'Branding', icon: Palette },
+  { value: 'login', label: 'Sign-in page', icon: LogIn },
+  { value: 'homepage', label: 'Homepage', icon: Home },
   { value: 'payments', label: 'Payment gateway', icon: CreditCard },
   { value: 'email', label: 'Email & notifications', icon: Mail },
+  { value: 'integrations', label: 'Google Sheet', icon: Sheet },
 ];
+const TAB_VALUES = TABS.map((t) => t.value);
 
 const ADMIN_EVENTS = [
   ['learnerRegistered', 'New learner registered'],
@@ -34,6 +58,8 @@ const ADMIN_EVENTS = [
   ['taskSubmitted', 'Task submitted and awaiting review'],
   ['learnerEnrolled', 'Learner enrolled in a course'],
   ['certificateIssued', 'Certificate issued'],
+  ['newEnquiry', 'New Enroll Now enquiry from the homepage'],
+  ['reviewPosted', 'Learner posted a course review'],
 ];
 
 const LEARNER_EVENTS = [
@@ -48,21 +74,36 @@ const LEARNER_EVENTS = [
 export default function AdminSettings() {
   const { refresh: refreshBranding } = useBranding();
   const flash = useFlash();
-  const [tab, setTab] = useState('branding');
+  const [params, setParams] = useSearchParams();
+  const initialTab = TAB_VALUES.includes(params.get('tab')) ? params.get('tab') : 'branding';
+  const [tab, setTabState] = useState(initialTab);
   const [settings, setSettings] = useState(null);
   const [emailConfigured, setEmailConfigured] = useState(false);
+  const [serviceAccountEmail, setServiceAccountEmail] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [uploading, setUploading] = useState(0);
+  const [sheetTesting, setSheetTesting] = useState(false);
+  // Which image field is uploading, and how far along: { key, percent }.
+  const [uploading, setUploading] = useState(null);
   const fileRef = useRef(null);
+  const uploadTarget = useRef(null);
 
-  usePageMeta('LMS settings', 'Branding, payments, email and notifications.');
+  // The tab lives in the URL so other pages can link straight to one.
+  const setTab = (value) => {
+    setTabState(value);
+    const next = new URLSearchParams(params);
+    next.set('tab', value);
+    setParams(next, { replace: true });
+  };
+
+  usePageMeta('LMS settings', 'Branding, sign-in and homepage content, payments, email and the Google Sheet.');
 
   useEffect(() => {
     getAdminSettings()
       .then((data) => {
         setSettings(data.settings);
         setEmailConfigured(data.emailConfigured);
+        setServiceAccountEmail(data.serviceAccountEmail);
       })
       .catch((err) => flash.error(toErrorMessage(err)));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once
@@ -86,13 +127,31 @@ export default function AdminSettings() {
       notifications: { ...prev.notifications, [audience]: { ...prev.notifications[audience], [key]: value } },
     }));
 
+  /** Links checked here as well as on the server, so a typo is caught before saving. */
+  const LINK_CHECKS = {
+    loginPage: [['imageUrl', 'Image', true]],
+    homepage: [
+      ['heroImageUrl', 'Homepage image', true],
+      ['heroImageLink', 'Image link', false],
+    ],
+  };
+
   const save = async (sections) => {
+    for (const section of sections) {
+      for (const [key, label, allowUploads] of LINK_CHECKS[section] || []) {
+        if (!isValidLink(settings[section][key], { allowUploads })) {
+          flash.error(`${label} must be a full link starting with https://`);
+          return;
+        }
+      }
+    }
     setSaving(true);
     try {
       const patch = Object.fromEntries(sections.map((s) => [s, settings[s]]));
       const data = await updateAdminSettings(patch);
       setSettings(data.settings);
       setEmailConfigured(data.emailConfigured);
+      setServiceAccountEmail(data.serviceAccountEmail);
       refreshBranding();
       flash.success('Settings saved.');
     } catch (err) {
@@ -102,17 +161,44 @@ export default function AdminSettings() {
     }
   };
 
-  const onLogo = async (event) => {
+  /** Opens the file picker for one image field, e.g. ['homepage', 'heroImageUrl']. */
+  const pickImage = (section, key) => {
+    uploadTarget.current = [section, key];
+    fileRef.current?.click();
+  };
+
+  const onImage = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file) return;
+    const target = uploadTarget.current;
+    if (!file || !target) return;
+    const [section, key] = target;
     try {
-      const result = await uploadCourseImage(file, setUploading);
-      set('branding', 'logoUrl')(result.url);
+      const result = await uploadCourseImage(file, (percent) => setUploading({ key, percent }));
+      set(section, key)(result.url);
     } catch (err) {
       flash.error(toErrorMessage(err));
     } finally {
-      setUploading(0);
+      setUploading(null);
+    }
+  };
+
+  const uploadButton = (section, key, label, variant = 'secondary') => (
+    <Button size="sm" variant={variant} loading={uploading?.key === key} onClick={() => pickImage(section, key)}>
+      <ImagePlus className="h-4 w-4" aria-hidden="true" />
+      {uploading?.key === key ? `Uploading ${uploading.percent || 0}%` : label}
+    </Button>
+  );
+
+  const onTestSheet = async () => {
+    setSheetTesting(true);
+    try {
+      const result = await testGoogleSheet();
+      flash.success(result.message);
+    } catch (err) {
+      flash.error(toErrorMessage(err));
+    } finally {
+      setSheetTesting(false);
     }
   };
 
@@ -128,7 +214,9 @@ export default function AdminSettings() {
     }
   };
 
-  const { branding, certificate, payments, email, notifications } = settings;
+  const { branding, loginPage, homepage, integrations, certificate, payments, email, notifications } = settings;
+  const sheetUrl = integrations.googleSheetId ? `https://docs.google.com/spreadsheets/d/${integrations.googleSheetId}/edit` : '';
+  const loginPoints = String(loginPage.points || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
   const webhookUrl = `${API_ORIGIN || window.location.origin}/api/payments/webhook/razorpay`;
   const keyMode = payments.razorpayKeyId.startsWith('rzp_live_') ? 'Live' : payments.razorpayKeyId.startsWith('rzp_test_') ? 'Test' : null;
 
@@ -151,30 +239,26 @@ export default function AdminSettings() {
 
       <AdminTabs tabs={TABS} value={tab} onChange={setTab} />
       {flash.node}
+      {/* One hidden picker shared by every image upload on this page. */}
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onImage} />
 
       {/* --- branding ------------------------------------------------------ */}
       {tab === 'branding' && (
-        <Panel icon={Palette} title="Platform name, logo and branding" description="Shown in the sidebar, sign-in pages, emails and on certificates.">
+        <Panel icon={Palette} title="Platform name and branding" description="Shown in the sidebar, sign-in pages, emails and on certificates. The Analytics Avenue logo itself is fixed.">
           <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid content-start gap-4 sm:grid-cols-2">
               <Input label="Platform name" value={branding.platformName} maxLength={60} onChange={field('branding', 'platformName')} />
               <Input label="Tagline" value={branding.tagline} maxLength={60} onChange={field('branding', 'tagline')} hint="Shown under the name, e.g. EduTech." />
               <Input label="Support email" type="email" value={branding.supportEmail} onChange={field('branding', 'supportEmail')} />
-              <Input label="Logo URL" value={branding.logoUrl} onChange={field('branding', 'logoUrl')} placeholder="Upload or paste a link" />
             </div>
 
             <div className="rounded-xl bg-primary-800 p-5 text-center">
               <p className="text-[12px] text-primary-200">Preview</p>
               <div className="mx-auto mt-4 grid h-16 w-16 place-items-center overflow-hidden rounded-xl bg-white">
-                <img src={branding.logoUrl ? resolveMediaUrl(branding.logoUrl) : '/logos/logo-new.png'} alt="" className="h-12 w-auto object-contain" />
+                <img src={LOGO_SRC} alt="" className="h-12 w-auto object-contain" />
               </div>
               <p className="mt-3 text-base font-bold text-white">{branding.platformName || 'Platform name'}</p>
               <p className="text-[12px] text-primary-200">{branding.tagline}</p>
-              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onLogo} />
-              <Button size="sm" variant="inverse" className="mt-4" loading={uploading > 0} onClick={() => fileRef.current?.click()}>
-                <ImagePlus className="h-4 w-4" aria-hidden="true" />
-                {uploading ? `Uploading ${uploading}%` : 'Upload logo'}
-              </Button>
             </div>
           </div>
           <div className="mt-6">{saveButton(['branding'])}</div>
@@ -206,6 +290,118 @@ export default function AdminSettings() {
             <Input label="Issued by — role" value={certificate.issuerRole} maxLength={60} onChange={field('certificate', 'issuerRole')} />
           </div>
           <div className="mt-6">{saveButton(['certificate'])}</div>
+        </Panel>
+      )}
+
+      {/* --- sign-in page ---------------------------------------------------- */}
+      {tab === 'login' && (
+        <Panel
+          icon={LogIn}
+          title="Sign-in page — left panel"
+          description="The blue panel beside the sign-in, sign-up and password forms (shown on laptop and desktop screens). Use it for a welcome message, a new batch or an upcoming event."
+          actions={
+            <Button to="/login" size="sm" variant="secondary" target="_blank">
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              Open sign-in page
+            </Button>
+          }
+        >
+          <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+            <div className="space-y-4">
+              <Input label="Heading" value={loginPage.heading} maxLength={120} onChange={field('loginPage', 'heading')} />
+              <div>
+                <label className="field-label" htmlFor="login-description">Text under the heading</label>
+                <textarea id="login-description" className="field-input min-h-[80px] resize-y" maxLength={600} value={loginPage.description} onChange={field('loginPage', 'description')} />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="login-points">Bullet points — one per line</label>
+                <textarea id="login-points" className="field-input min-h-[100px] resize-y" maxLength={1000} value={loginPage.points} onChange={field('loginPage', 'points')} />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input label="Image (optional)" value={loginPage.imageUrl} onChange={field('loginPage', 'imageUrl')} placeholder="Upload or paste an https:// link" />
+                <Input label="Image description" value={loginPage.imageAlt} maxLength={120} onChange={field('loginPage', 'imageAlt')} hint="Read aloud by screen readers." />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {uploadButton('loginPage', 'imageUrl', 'Upload image')}
+                {loginPage.imageUrl && (
+                  <Button size="sm" variant="ghost" onClick={() => set('loginPage', 'imageUrl')('')}>Remove image</Button>
+                )}
+              </div>
+            </div>
+
+            {/* Live preview of the panel. */}
+            <div className="rounded-2xl bg-gradient-to-br from-primary-800 via-primary-700 to-primary-600 p-5 text-white">
+              <p className="text-[11px] uppercase tracking-wide text-primary-200">Preview</p>
+              <p className="mt-3 text-lg font-semibold leading-snug">{loginPage.heading || 'Heading'}</p>
+              {loginPage.description && <p className="mt-2 whitespace-pre-line text-[12.5px] leading-relaxed text-primary-100">{loginPage.description}</p>}
+              {loginPoints.length > 0 && (
+                <ul className="mt-3 space-y-1.5">
+                  {loginPoints.map((point) => (
+                    <li key={point} className="flex items-start gap-2 text-[12px] text-primary-50">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary-200" aria-hidden="true" />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {loginPage.imageUrl && isValidLink(loginPage.imageUrl, { allowUploads: true }) && (
+                <img src={resolveMediaUrl(loginPage.imageUrl)} alt="" className="mt-4 max-h-40 w-full rounded-xl object-cover" />
+              )}
+            </div>
+          </div>
+          <div className="mt-6">{saveButton(['loginPage'])}</div>
+        </Panel>
+      )}
+
+      {/* --- homepage -------------------------------------------------------- */}
+      {tab === 'homepage' && (
+        <Panel
+          icon={Home}
+          title="Homepage image"
+          description="The large picture on the right of the homepage banner. Swap it for an upcoming event, an announcement or a new batch; leave it empty to show the default photo."
+          actions={
+            <Button to="/" size="sm" variant="secondary" target="_blank">
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              Open homepage
+            </Button>
+          }
+        >
+          <div className="grid gap-6 lg:grid-cols-[1fr_16rem]">
+            <div className="space-y-4">
+              <Input
+                label="Image"
+                value={homepage.heroImageUrl}
+                onChange={field('homepage', 'heroImageUrl')}
+                placeholder="Upload or paste an https:// link"
+                hint="A tall (portrait) image works best, e.g. 900 × 1100 pixels. PNG, JPG or WebP."
+              />
+              <div className="flex flex-wrap gap-2">
+                {uploadButton('homepage', 'heroImageUrl', 'Upload image')}
+                {homepage.heroImageUrl && (
+                  <Button size="sm" variant="ghost" onClick={() => set('homepage', 'heroImageUrl')('')}>Use the default photo</Button>
+                )}
+              </div>
+              <Input label="Image description" value={homepage.heroImageAlt} maxLength={160} onChange={field('homepage', 'heroImageAlt')} hint="Read aloud by screen readers, e.g. 'Data Science bootcamp — starts 1 December'." />
+              <Input
+                label="Link when the image is clicked (optional)"
+                value={homepage.heroImageLink}
+                onChange={field('homepage', 'heroImageLink')}
+                placeholder="https://… — an event page, a registration form"
+                hint="Opens in a new tab. Leave empty for a plain image."
+              />
+            </div>
+            <div>
+              <p className="field-label">Preview</p>
+              <div className="aspect-[4/5] overflow-hidden rounded-xl border border-ink-200 bg-ink-50">
+                <img
+                  src={homepage.heroImageUrl && isValidLink(homepage.heroImageUrl, { allowUploads: true }) ? resolveMediaUrl(homepage.heroImageUrl) : '/homepage/mentors/mentooors1.jpeg'}
+                  alt=""
+                  className="h-full w-full object-cover object-top"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="mt-6">{saveButton(['homepage'])}</div>
         </Panel>
       )}
 
@@ -367,6 +563,82 @@ export default function AdminSettings() {
             <div className="mt-6">{saveButton(['notifications'])}</div>
           </Panel>
         </div>
+      )}
+
+      {/* --- Google Sheet ----------------------------------------------------- */}
+      {tab === 'integrations' && (
+        <Panel
+          icon={Sheet}
+          title="Google Sheet for Enroll Now enquiries"
+          description="Every response to the homepage Enroll Now form is saved in Admin → Enquiries and added as a new row in this sheet."
+          actions={
+            sheetUrl && (
+              <Button href={sheetUrl} size="sm" variant="secondary" target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                Open sheet
+              </Button>
+            )
+          }
+        >
+          <ol className="mb-6 space-y-2 rounded-xl border border-primary-100 bg-primary-50/50 p-4 text-[13px] leading-relaxed text-ink-700">
+            <li>
+              <strong className="font-semibold">1. Share the sheet</strong> with this address as <strong className="font-semibold">Editor</strong>:{' '}
+              {serviceAccountEmail ? (
+                <span className="inline-flex flex-wrap items-center gap-1.5">
+                  <code className="break-all rounded bg-white px-1.5 py-0.5 text-[12px] text-primary-800">{serviceAccountEmail}</code>
+                  <button type="button" onClick={() => navigator.clipboard?.writeText(serviceAccountEmail)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary-700 hover:text-primary-800">
+                    <Copy className="h-3.5 w-3.5" aria-hidden="true" /> Copy
+                  </button>
+                </span>
+              ) : (
+                <span className="text-red-600">no Google service account is set up on the server yet.</span>
+              )}
+            </li>
+            <li>
+              <strong className="font-semibold">2. Turn on the Google Sheets API</strong> for that service account&apos;s Google Cloud project (APIs &amp; Services → Library → Google Sheets API → Enable). This only needs doing once.
+            </li>
+            <li>
+              <strong className="font-semibold">3. Paste the sheet link below, save, then press Test connection.</strong> The column headings are added automatically if the sheet is empty.
+            </li>
+          </ol>
+
+          <div className="divide-y divide-ink-100">
+            <Toggle
+              id="sheet-enabled"
+              label="Copy enquiries to the Google Sheet"
+              description="When off, enquiries are still saved in Admin → Enquiries."
+              checked={integrations.googleSheetEnabled}
+              onChange={set('integrations', 'googleSheetEnabled')}
+            />
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_14rem]">
+            <Input
+              label="Google Sheet link"
+              value={integrations.googleSheetId}
+              onChange={field('integrations', 'googleSheetId')}
+              placeholder="https://docs.google.com/spreadsheets/d/…"
+              hint="The full link or just the long id from it."
+            />
+            <Input
+              label="Tab name (optional)"
+              value={integrations.googleSheetTab}
+              maxLength={80}
+              onChange={field('integrations', 'googleSheetTab')}
+              placeholder="First tab"
+              hint="Created automatically if it does not exist."
+            />
+          </div>
+          <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-ink-100 pt-5">
+            <Button variant="secondary" onClick={onTestSheet} loading={sheetTesting} disabled={!integrations.googleSheetId}>
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+              Test connection
+            </Button>
+            <Button onClick={() => save(['integrations'])} loading={saving}>
+              <Save className="h-4 w-4" aria-hidden="true" />
+              Save
+            </Button>
+          </div>
+        </Panel>
       )}
     </div>
   );

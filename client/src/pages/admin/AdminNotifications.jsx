@@ -8,7 +8,9 @@ import {
   CreditCard,
   Inbox,
   Megaphone,
+  PhoneCall,
   Send,
+  Star,
   UserCheck,
   UserPlus,
 } from 'lucide-react';
@@ -34,6 +36,8 @@ const TYPES = {
   submission: { icon: ClipboardCheck, tone: 'bg-violet-50 text-violet-600', label: 'Task', group: 'tasks' },
   task: { icon: ClipboardCheck, tone: 'bg-violet-50 text-violet-600', label: 'Task', group: 'tasks' },
   certificate: { icon: Award, tone: 'bg-amber-50 text-amber-600', label: 'Certificate', group: 'certificates' },
+  enquiry: { icon: PhoneCall, tone: 'bg-sky-50 text-sky-600', label: 'Enquiry', group: 'enquiries' },
+  review: { icon: Star, tone: 'bg-amber-50 text-amber-600', label: 'Review', group: 'reviews' },
 };
 const FALLBACK = { icon: Megaphone, tone: 'bg-ink-100 text-ink-600', label: 'Update', group: 'other' };
 
@@ -44,6 +48,8 @@ const FILTERS = [
   { value: 'payments', label: 'Payments' },
   { value: 'tasks', label: 'Tasks' },
   { value: 'certificates', label: 'Certificates' },
+  { value: 'enquiries', label: 'Enquiries' },
+  { value: 'reviews', label: 'Reviews' },
 ];
 
 export default function AdminNotifications() {
@@ -55,7 +61,7 @@ export default function AdminNotifications() {
   usePageMeta('Notifications', 'Your alerts, and messages to learners.');
 
   const counts = useMemo(() => {
-    const tally = { all: notifications.length, unread: unreadCount, learners: 0, payments: 0, tasks: 0, certificates: 0 };
+    const tally = { all: notifications.length, unread: unreadCount, learners: 0, payments: 0, tasks: 0, certificates: 0, enquiries: 0, reviews: 0 };
     for (const n of notifications) {
       const group = (TYPES[n.type] || FALLBACK).group;
       if (group in tally) tally[group] += 1;

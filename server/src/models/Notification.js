@@ -28,6 +28,10 @@ const notificationSchema = new mongoose.Schema(
         'enrollment',
         // A learner handed in work that needs reviewing.
         'submission',
+        // A homepage "Enroll Now" enquiry arrived.
+        'enquiry',
+        // A learner posted a course review.
+        'review',
         // --- learner-facing ---
         // A submission was reviewed (feedback and score).
         'task_review',

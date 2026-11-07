@@ -1,9 +1,8 @@
 const Event = require('../models/Event');
-const CourseAccess = require('../models/CourseAccess');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { notifyUsers, activeLearnerIds } = require('../services/notificationService');
 const activity = require('../services/activityService');
-const { isGrantLive } = require('../services/enrolmentService');
+const { learnerIdsWithAccess } = require('../services/enrolmentService');
 
 /** Fields the admin dashboard may set on an event. */
 function buildFields(body = {}) {
@@ -115,13 +114,8 @@ async function createEvent(req, res, next) {
 
     // Announce it, either to one course's students or to everyone.
     if (req.body?.notifyStudents && event.published) {
-      let recipients;
-      if (event.courseId) {
-        const grants = await CourseAccess.find({ courseId: event.courseId, active: true });
-        recipients = await activeLearnerIds({ _id: { $in: grants.filter(isGrantLive).map((g) => g.studentId) } });
-      } else {
-        recipients = await activeLearnerIds();
-      }
+      // Course grants plus Full Access learners, or everyone for a general event.
+      const recipients = event.courseId ? await learnerIdsWithAccess(event.courseId) : await activeLearnerIds();
 
       await notifyUsers(
         recipients,

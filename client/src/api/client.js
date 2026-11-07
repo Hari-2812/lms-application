@@ -146,6 +146,12 @@ export const enrolLearner = (id, courseId) =>
   api.post(`/admin/learners/${id}/enrol`, { courseId }).then((r) => r.data);
 export const unenrolLearner = (id, courseId) =>
   api.delete(`/admin/learners/${id}/enrol/${courseId}`).then((r) => r.data);
+/** Full Access: every course and material, including courses added later. */
+export const setLearnerFullAccess = (id, enabled) =>
+  api.patch(`/admin/learners/${id}/full-access`, { enabled }).then((r) => r.data);
+/** Limited Access to materials: replaces the set of study materials shared with the learner. */
+export const setLearnerMaterials = (id, resourceIds) =>
+  api.put(`/admin/learners/${id}/materials`, { resourceIds }).then((r) => r.data);
 /** mode: 'link' emails a reset link, 'temporary' returns a one-time password. */
 export const resetUserPassword = (id, mode) =>
   api.post(`/admin/users/${id}/reset-password`, { mode }).then((r) => r.data);
@@ -179,6 +185,17 @@ export const getAdminCertificates = (params) =>
 export const getAdminSettings = () => api.get('/admin/settings').then((r) => r.data);
 export const updateAdminSettings = (patch) => api.put('/admin/settings', patch).then((r) => r.data);
 export const sendTestEmail = () => api.post('/admin/settings/test-email').then((r) => r.data);
+export const testGoogleSheet = () => api.post('/admin/integrations/google-sheet/test').then((r) => r.data);
+
+// --- admin: reviews ------------------------------------------------------------
+export const getAdminReviews = (params) => api.get('/admin/reviews', { params }).then((r) => r.data);
+export const moderateReview = (id, payload) => api.patch(`/admin/reviews/${id}`, payload).then((r) => r.data);
+export const deleteReview = (id) => api.delete(`/admin/reviews/${id}`).then((r) => r.data);
+
+// --- admin: "Enroll Now" enquiries -----------------------------------------------
+export const getEnquiries = (params) => api.get('/admin/enquiries', { params }).then((r) => r.data);
+export const resyncEnquiry = (id) => api.post(`/admin/enquiries/${id}/sync`).then((r) => r.data);
+export const resyncAllEnquiries = () => api.post('/admin/enquiries/sync').then((r) => r.data);
 export const getTeam = () => api.get('/admin/team').then((r) => r.data);
 export const addTeamMember = (payload) => api.post('/admin/team', payload).then((r) => r.data);
 export const updateTeamMember = (id, payload) => api.patch(`/admin/team/${id}`, payload).then((r) => r.data);
@@ -235,7 +252,22 @@ export function resolveMediaUrl(url) {
   return url;
 }
 
+// --- study materials ----------------------------------------------------------
+/** Every material this learner can open, grouped by course. */
+export const getMyResources = () => api.get('/resources/mine').then((r) => r.data);
+
+// --- course reviews -----------------------------------------------------------
+export const getCourseReviews = (courseId) => api.get(`/courses/${courseId}/reviews`).then((r) => r.data);
+export const saveCourseReview = (courseId, payload) =>
+  api.post(`/courses/${courseId}/reviews`, payload).then((r) => r.data);
+export const deleteMyCourseReview = (courseId) =>
+  api.delete(`/courses/${courseId}/reviews/mine`).then((r) => r.data);
+
+// --- "Enroll Now" enquiry form ----------------------------------------------------
+export const submitEnquiry = (payload) => api.post('/enquiries', payload).then((r) => r.data);
+
 // --- admin: resources -------------------------------------------------------
+export const getAllResources = () => api.get('/admin/resources').then((r) => r.data);
 export const addResource = (payload) => api.post('/admin/resources', payload).then((r) => r.data);
 export const updateResource = (resourceId, payload) =>
   api.put(`/admin/resources/${resourceId}`, payload).then((r) => r.data);
@@ -250,14 +282,11 @@ export const markAllNotificationsRead = () => api.patch('/notifications/read-all
 
 // --- certificates -----------------------------------------------------------
 // Course certificates are generated server-side on completion; this list is
-// the record of what has been issued. `generateSampleCertificate` drives the
-// free sample flow in the Certificates section.
+// the record of what has been issued. Sample certificates are an admin-only
+// preview (Admin → Certificates).
 export const getCertificates = () => api.get('/certificates').then((r) => r.data);
 export const issueCertificate = (courseId) =>
   api.post('/certificates/issue', { courseId }).then((r) => r.data);
-export const generateSampleCertificate = (payload) =>
-  api.post('/certificates/sample', payload).then((r) => r.data);
-export const deleteCertificate = (id) => api.delete(`/certificates/${id}`).then((r) => r.data);
 export const verifyCertificate = (serial) =>
   api.get(`/certificates/verify/${serial}`).then((r) => r.data);
 

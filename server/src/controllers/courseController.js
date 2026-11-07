@@ -3,6 +3,8 @@ const Lesson = require('../models/Lesson');
 const Progress = require('../models/Progress');
 const CourseAccess = require('../models/CourseAccess');
 const Enrollment = require('../models/Enrollment');
+const ResourceAccess = require('../models/ResourceAccess');
+const Review = require('../models/Review');
 const { isGrantLive } = require('../services/enrolmentService');
 
 /**
@@ -12,21 +14,37 @@ const { isGrantLive } = require('../services/enrolmentService');
  *
  * `student` is undefined for anonymous catalogue browsing (the course list
  * is public) — such requests get lesson counts but no progress and no access.
+ *
+ * `accessVia` says how a learner got in: 'staff', 'full' (Full Access) or
+ * 'grant' (admin-granted, paid or free). `hasSelectedMaterials` marks a
+ * course the learner cannot open but has been given some study materials from.
+ *
+ * Once a course has learner reviews, its rating is their real average; until
+ * then the admin-entered catalogue rating (if any) is shown.
  */
 async function decorateCourses(courses, student) {
   const courseIds = courses.map((c) => c._id);
   const isAdmin = student?.role === 'admin';
+  const hasFullAccess = Boolean(student?.fullAccess);
+  const needsGrants = student && !isAdmin && !hasFullAccess;
 
-  const [lessonCounts, progressRows, accessRows] = await Promise.all([
+  const [lessonCounts, progressRows, accessRows, materialRows, reviewStats] = await Promise.all([
     Lesson.aggregate([
       { $match: { courseId: { $in: courseIds } } },
       { $group: { _id: '$courseId', count: { $sum: 1 } } },
     ]),
     student ? Progress.find({ studentId: student.id, courseId: { $in: courseIds } }).lean() : [],
-    isAdmin || !student
-      ? Promise.resolve([])
-      : CourseAccess.find({ studentId: student.id, courseId: { $in: courseIds }, active: true }).lean(),
+    needsGrants
+      ? CourseAccess.find({ studentId: student.id, courseId: { $in: courseIds }, active: true }).lean()
+      : [],
+    needsGrants ? ResourceAccess.distinct('courseId', { studentId: student.id, courseId: { $in: courseIds } }) : [],
+    Review.aggregate([
+      { $match: { courseId: { $in: courseIds }, hidden: false } },
+      { $group: { _id: '$courseId', average: { $avg: '$rating' }, count: { $sum: 1 } } },
+    ]),
   ]);
+  const reviewsByCourse = new Map(reviewStats.map((r) => [String(r._id), r]));
+  const materialCourses = new Set(materialRows.map(String));
 
   const countByCourse = new Map(lessonCounts.map((r) => [String(r._id), r.count]));
   const completedByCourse = new Map();
@@ -42,12 +60,17 @@ async function decorateCourses(courses, student) {
     const key = String(course._id);
     const lessonCount = countByCourse.get(key) || 0;
     const completed = completedByCourse.get(key) || 0;
+    const accessVia = isAdmin ? 'staff' : hasFullAccess ? 'full' : accessByCourse.has(key) ? 'grant' : null;
+    const reviews = reviewsByCourse.get(key);
     return {
       ...course.toJSON(),
+      ...(reviews ? { rating: Math.round(reviews.average * 10) / 10, ratingCount: reviews.count } : {}),
       lessonCount,
       completedLessons: completed,
       progress: lessonCount ? Math.round((completed / lessonCount) * 100) : 0,
-      hasAccess: isAdmin || accessByCourse.has(key),
+      hasAccess: Boolean(accessVia),
+      accessVia,
+      hasSelectedMaterials: !accessVia && materialCourses.has(key),
     };
   });
 }

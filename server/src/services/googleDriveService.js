@@ -179,7 +179,8 @@ async function getVideoMetadata(fileId) {
   const drive = getDriveClient();
   const { data } = await drive.files.get({
     fileId,
-    fields: 'id, name, mimeType, size, webViewLink, parents, videoMediaMetadata(durationMillis)',
+    fields:
+      'id, name, mimeType, size, webViewLink, parents, videoMediaMetadata(durationMillis), capabilities(canDownload)',
     supportsAllDrives: true,
   });
 
@@ -208,7 +209,16 @@ async function getVideoMetadata(fileId) {
     durationSeconds: data.videoMediaMetadata?.durationMillis
       ? Math.round(Number(data.videoMediaMetadata.durationMillis) / 1000)
       : 0,
+    // False when the owner turned on "viewers can't download, print or copy":
+    // the service account can see the file but Drive will not stream its bytes.
+    canDownload: data.capabilities?.canDownload !== false,
   };
+}
+
+/** True when Drive refused a download because the file's owner disabled downloads for viewers. */
+function isDownloadBlocked(err) {
+  const reason = err?.errors?.[0]?.reason || err?.response?.data?.error?.errors?.[0]?.reason;
+  return reason === 'cannotDownloadFile' || /cannotDownloadFile|cannot be downloaded/i.test(String(err?.message || ''));
 }
 
 /**
@@ -321,7 +331,10 @@ async function getVideoStream(fileId, range) {
 }
 
 module.exports = {
+  // Shared with googleSheetsService, which signs in as the same service account.
+  getCredentials,
   isConfigured,
+  isDownloadBlocked,
   getConfigSummary,
   getVideoMetadata,
   normaliseFolderId,

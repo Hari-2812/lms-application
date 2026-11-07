@@ -14,16 +14,42 @@ import {
   PageHeader,
   Panel,
   Pill,
+  ProgressMeter,
   StatTile,
   formatDate,
   formatMoney,
   timeAgo,
 } from '../../components/admin/ui.jsx';
 
+const PROGRESS_OPTIONS = [
+  ['not_enrolled', 'No course yet'],
+  ['not_started', 'Not started'],
+  ['in_progress', 'In progress'],
+  ['completed', 'Completed all courses'],
+];
+
+const TASK_OPTIONS = [
+  ['pending', 'Has tasks to submit'],
+  ['overdue', 'Has overdue tasks'],
+  ['all_done', 'Submitted every task'],
+  ['awaiting_review', 'Waiting for review'],
+  ['needs_revision', 'Needs revision'],
+  ['none_submitted', 'Never submitted'],
+];
+
+const ACCESS_OPTIONS = [
+  ['full', 'Full Access'],
+  ['courses', 'Selected courses'],
+  ['materials', 'Shared materials'],
+  ['none', 'No access yet'],
+];
+
 /**
- * Admin → Learners: every registered learner with contact details, enrolled
- * courses and payment state, searchable and filterable by course, account
- * status and payment status. Clicking a row opens the learner's record.
+ * Admin → Learners: every registered learner with contact details, access,
+ * progress, tasks and payment state. Filterable by course, access type,
+ * progress (not started / in progress / completed), task status (pending,
+ * overdue, waiting for review…), account status and payment status — e.g.
+ * "learners in Python with overdue tasks". Clicking a row opens the record.
  */
 export default function AdminLearners() {
   const [params, setParams] = useSearchParams();
@@ -41,6 +67,9 @@ export default function AdminLearners() {
     courseId: params.get('courseId') || '',
     status: params.get('status') || '',
     payment: params.get('payment') || '',
+    access: params.get('access') || '',
+    progress: params.get('progress') || '',
+    tasks: params.get('tasks') || '',
   };
 
   const setFilter = (key, value) => {
@@ -81,7 +110,9 @@ export default function AdminLearners() {
       total: learners.length,
       active: learners.filter((l) => l.status !== 'suspended').length,
       suspended: learners.filter((l) => l.status === 'suspended').length,
-      enrolled: learners.filter((l) => l.courseCount > 0).length,
+      enrolled: learners.filter((l) => l.fullAccess || l.courseCount > 0).length,
+      overdue: learners.filter((l) => l.tasksOverdue > 0).length,
+      completed: learners.filter((l) => l.progressState === 'completed').length,
     }),
     [learners]
   );
@@ -93,14 +124,14 @@ export default function AdminLearners() {
       <PageHeader
         icon={Users}
         title="Learner management"
-        description="Profiles and contact details, enrolled courses, payment status and task history for every registered learner."
+        description="Profiles, access, progress, tasks and payments for every registered learner. Use the filters to find, for example, learners who have not started, or who have overdue tasks."
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile featured icon={Users} label={filtered ? 'Matching learners' : 'Registered learners'} value={totals.total} />
-        <StatTile icon={UserCheck} tone="green" label="Active accounts" value={totals.active} />
-        <StatTile icon={UserX} tone={totals.suspended ? 'red' : 'soft'} label="Suspended" value={totals.suspended} />
-        <StatTile icon={Users} label="Enrolled in a course" value={totals.enrolled} />
+        <StatTile featured icon={Users} label={filtered ? 'Matching learners' : 'Registered learners'} value={totals.total} hint={totals.suspended ? `${totals.suspended} suspended` : undefined} />
+        <StatTile icon={UserCheck} tone="green" label="With course access" value={totals.enrolled} />
+        <StatTile icon={Users} label="Completed their courses" value={totals.completed} />
+        <StatTile icon={UserX} tone={totals.overdue ? 'amber' : undefined} label="With overdue tasks" value={totals.overdue} />
       </section>
 
       <Alert tone="error">{error}</Alert>
@@ -126,6 +157,30 @@ export default function AdminLearners() {
                 <option key={c._id} value={c._id}>
                   {c.title}
                 </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="Access" className="lg:w-44">
+            <select className="admin-field" value={filters.access} onChange={(e) => setFilter('access', e.target.value)}>
+              <option value="">Any access</option>
+              {ACCESS_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label={filters.courseId ? 'Progress in this course' : 'Progress'} className="lg:w-48">
+            <select className="admin-field" value={filters.progress} onChange={(e) => setFilter('progress', e.target.value)}>
+              <option value="">Any progress</option>
+              {PROGRESS_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="Tasks" className="lg:w-48">
+            <select className="admin-field" value={filters.tasks} onChange={(e) => setFilter('tasks', e.target.value)}>
+              <option value="">Any task status</option>
+              {TASK_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
               ))}
             </select>
           </FilterField>
@@ -169,14 +224,15 @@ export default function AdminLearners() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="admin-table min-w-[56rem]">
+            <table className="admin-table min-w-[68rem]">
               <thead>
                 <tr>
                   <th>Learner</th>
                   <th>Contact</th>
-                  <th>Courses</th>
-                  <th>Payments</th>
+                  <th>Access</th>
+                  <th className="w-44">{filters.courseId ? 'Progress (this course)' : 'Progress'}</th>
                   <th>Tasks</th>
+                  <th>Payments</th>
                   <th>Joined</th>
                   <th>Status</th>
                   <th className="text-right">
@@ -209,8 +265,46 @@ export default function AdminLearners() {
                       <p className="text-[12px] text-ink-500">{learner.phone || 'No phone'}</p>
                     </td>
                     <td>
-                      <span className="font-semibold tabular-nums text-primary-700">{learner.courseCount}</span>
-                      <span className="text-ink-400"> enrolled</span>
+                      {learner.fullAccess ? (
+                        <Pill tone="blue">Full Access</Pill>
+                      ) : (
+                        <div className="text-[13px]">
+                          <span className="font-semibold tabular-nums text-primary-700">{learner.courseCount}</span>
+                          <span className="text-ink-400"> course{learner.courseCount === 1 ? '' : 's'}</span>
+                          {learner.materialCount > 0 && (
+                            <p className="text-[11.5px] text-ink-500">+ {learner.materialCount} shared material{learner.materialCount === 1 ? '' : 's'}</p>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {learner.progressState === 'not_enrolled' ? (
+                        <span className="text-[12.5px] text-ink-400">—</span>
+                      ) : (
+                        <>
+                          <ProgressMeter value={learner.progressPercent} label={`${learner.name} progress`} />
+                          <p className="mt-1 text-[11.5px] text-ink-500">
+                            {learner.completedLessons}/{learner.totalLessons} lessons
+                            {learner.coursesCompleted > 0 ? ` · ${learner.coursesCompleted} done` : ''}
+                          </p>
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      {learner.tasksAssigned > 0 ? (
+                        <div className="flex flex-col items-start gap-1">
+                          <span className="text-[13px] tabular-nums text-ink-800">
+                            {learner.tasksSubmitted}/{learner.tasksAssigned} submitted
+                          </span>
+                          {learner.tasksOverdue > 0 && <Pill tone="red">{learner.tasksOverdue} overdue</Pill>}
+                          {learner.awaitingReview > 0 && <Pill tone="blue">{learner.awaitingReview} to review</Pill>}
+                          {learner.needsRevision > 0 && <Pill tone="amber">{learner.needsRevision} needs revision</Pill>}
+                        </div>
+                      ) : (
+                        <span className="text-[12.5px] text-ink-400">
+                          {learner.submissionCount ? `${learner.submissionCount} submitted` : 'No tasks'}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <div className="flex flex-wrap gap-1.5">
@@ -222,7 +316,6 @@ export default function AdminLearners() {
                         )}
                       </div>
                     </td>
-                    <td className="tabular-nums">{learner.submissionCount}</td>
                     <td className="whitespace-nowrap text-[13px]">{formatDate(learner.createdAt)}</td>
                     <td>
                       <AccountStatus status={learner.status} />

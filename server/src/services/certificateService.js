@@ -120,12 +120,13 @@ async function issueForCourse(studentId, courseId, { notify = true } = {}) {
 }
 
 /**
- * Generates a sample certificate from free-text input — the "see what you'll
- * get" flow. Persisted when a student is signed in so it shows up in their
- * Certificate section; returned unsaved to anonymous visitors.
+ * Builds a sample certificate from free-text input, for staff previewing the
+ * template. Never saved, and never shown to learners.
  */
-async function issueSample({ studentId, recipientName, courseTitle, instructor, lessonCount, hours }) {
-  const payload = {
+function issueSample({ recipientName, courseTitle, instructor, lessonCount, hours }) {
+  return {
+    id: null,
+    preview: true,
     kind: 'sample',
     recipientName,
     courseTitle,
@@ -135,19 +136,6 @@ async function issueSample({ studentId, recipientName, courseTitle, instructor, 
     serial: Certificate.generateSerial('SAMPLE'),
     issuedAt: new Date(),
   };
-
-  if (!studentId) return { ...payload, id: null, preview: true };
-
-  const certificate = await Certificate.create({ ...payload, userId: studentId });
-
-  await notifyUser(studentId, {
-    type: 'certificate',
-    title: 'Sample certificate generated',
-    message: `Your sample certificate for "${courseTitle}" is ready in the Certificates section.`,
-    link: '/certificates',
-  });
-
-  return certificate;
 }
 
 /**
@@ -164,7 +152,9 @@ async function listMine(studentId) {
     completed.map((row) => issueForCourse(studentId, row._id, { notify: false }).catch(() => null))
   );
 
-  return Certificate.find({ userId: studentId }).sort({ issuedAt: -1 });
+  // Earned certificates only. Samples are an admin preview tool; any made by
+  // learners before that change stay in the database but are no longer listed.
+  return Certificate.find({ userId: studentId, kind: 'course' }).sort({ issuedAt: -1 });
 }
 
 module.exports = { issueForCourse, issueSample, listMine, completionFor };

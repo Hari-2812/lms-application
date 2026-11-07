@@ -2,13 +2,19 @@ const Course = require('../models/Course');
 const CourseAccess = require('../models/CourseAccess');
 const User = require('../models/User');
 const settingsService = require('./settingsService');
-const { notifyUser, notifyAdmins } = require('./notificationService');
+const { notifyUser, notifyAdmins, activeLearnerIds } = require('./notificationService');
 
 /**
  * The one place course access is granted, and the payment state machine
  * that leads to it. Admin actions, the free-course checkout, the Razorpay
  * callback and its webhook all come through here, so a learner is enrolled
  * (and everyone is told) the same way whichever path got them there.
+ *
+ * The three kinds of access a learner can have:
+ *   Full Access     User.fullAccess — every course and material, including future ones
+ *   Course access   a live CourseAccess row — granted by an admin (Limited
+ *                   Access), or created automatically by a paid / free enrolment
+ *   Material access ResourceAccess rows — individual study materials only
  */
 
 const rupees = (amount) => `₹${Number(amount || 0).toLocaleString('en-IN')}`;
@@ -16,6 +22,69 @@ const rupees = (amount) => `₹${Number(amount || 0).toLocaleString('en-IN')}`;
 /** True when the grant exists, is switched on and has not run out. */
 function isGrantLive(grant) {
   return Boolean(grant?.active) && (!grant.expiresAt || new Date(grant.expiresAt) > new Date());
+}
+
+/**
+ * Whether `user` may open a course's lessons, videos and materials.
+ * Returns { allowed, via: 'staff' | 'full' | 'grant', reason?: 'none' | 'expired' }.
+ */
+async function courseAccessFor(user, courseId) {
+  if (!user || !courseId) return { allowed: false, reason: 'none' };
+  if (user.role === 'admin') return { allowed: true, via: 'staff' };
+  // Full Access covers every published course; drafts stay with staff until released.
+  if (user.fullAccess && (await Course.exists({ _id: courseId, published: { $ne: false } }))) {
+    return { allowed: true, via: 'full' };
+  }
+
+  const grant = await CourseAccess.findOne({ studentId: user._id, courseId });
+  if (!grant || !grant.active) return { allowed: false, reason: 'none' };
+  if (!isGrantLive(grant)) return { allowed: false, reason: 'expired' };
+  return { allowed: true, via: 'grant' };
+}
+
+/**
+ * Every active learner who can currently open a course: live grants plus
+ * Full Access accounts. The audience for "new lesson", "new task" and
+ * course-specific events.
+ */
+async function learnerIdsWithAccess(courseId) {
+  const grants = await CourseAccess.find({ courseId, active: true }).select('studentId active expiresAt');
+  const live = grants.filter(isGrantLive).map((g) => g.studentId);
+  return activeLearnerIds({ $or: [{ _id: { $in: live } }, { fullAccess: true }] });
+}
+
+/** Ids of the courses a learner can open through their own grants (not Full Access). */
+async function grantedCourseIds(studentId) {
+  const grants = await CourseAccess.find({ studentId, active: true }).select('courseId active expiresAt');
+  return grants.filter(isGrantLive).map((g) => g.courseId);
+}
+
+/**
+ * Turns Full Access on or off for a learner. Returns true when it changed.
+ * Course grants are untouched either way.
+ */
+async function setFullAccess(student, enabled, { by } = {}) {
+  if (Boolean(student.fullAccess) === Boolean(enabled)) return false;
+
+  student.fullAccess = Boolean(enabled);
+  student.fullAccessGrantedAt = enabled ? new Date() : undefined;
+  student.fullAccessGrantedBy = enabled ? by : undefined;
+  await student.save();
+
+  await notifyUser(student._id, enabled
+    ? {
+        type: 'access_granted',
+        title: 'Full access granted',
+        message: 'You now have access to every course and learning material, including new courses as they are added.',
+        link: '/my-courses',
+      }
+    : {
+        type: 'access_revoked',
+        title: 'Full access ended',
+        message: 'Your all-course access has ended. Courses you were enrolled in or paid for individually are still available.',
+        link: '/my-courses',
+      });
+  return true;
 }
 
 /**
@@ -210,6 +279,10 @@ async function markPaymentFailed(enrollment, { reason = '', by } = {}) {
 
 module.exports = {
   isGrantLive,
+  courseAccessFor,
+  learnerIdsWithAccess,
+  grantedCourseIds,
+  setFullAccess,
   grantCourseAccess,
   revokeCourseAccess,
   markPaymentSuccessful,

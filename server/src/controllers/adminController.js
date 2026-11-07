@@ -1,14 +1,24 @@
+const mongoose = require('mongoose');
 const Course = require('../models/Course');
 const Lesson = require('../models/Lesson');
 const User = require('../models/User');
 const CourseAccess = require('../models/CourseAccess');
 const Enrollment = require('../models/Enrollment');
 const Resource = require('../models/Resource');
+const ResourceAccess = require('../models/ResourceAccess');
+const Review = require('../models/Review');
 const driveService = require('../services/googleDriveService');
 const { notifyUser, notifyUsers, activeLearnerIds } = require('../services/notificationService');
 const activity = require('../services/activityService');
-const { grantCourseAccess, revokeCourseAccess, isGrantLive, rupees } = require('../services/enrolmentService');
+const {
+  grantCourseAccess,
+  revokeCourseAccess,
+  isGrantLive,
+  learnerIdsWithAccess,
+  rupees,
+} = require('../services/enrolmentService');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
+const { checkUrl, normaliseDriveLink } = require('../utils/url');
 
 /**
  * Everything the admin dashboard is allowed to write on a course.
@@ -74,9 +84,26 @@ function buildCourseFields(body = {}) {
   return fields;
 }
 
+/** Checks the course's links in place; returns an error message or null. */
+function validateCourseLinks(fields) {
+  if (fields.introVideoUrl !== undefined) {
+    const result = checkUrl(fields.introVideoUrl, { label: 'Intro video URL' });
+    if (result.error) return result.error;
+    fields.introVideoUrl = result.value;
+  }
+  if (fields.thumbnail !== undefined) {
+    const result = checkUrl(fields.thumbnail, { allowUploads: true, label: 'Thumbnail' });
+    if (result.error) return result.error;
+    fields.thumbnail = result.value;
+  }
+  return null;
+}
+
 async function createCourse(req, res, next) {
   try {
     const fields = buildCourseFields(req.body);
+    const linkError = validateCourseLinks(fields);
+    if (linkError) return res.status(400).json({ error: linkError });
     if (!fields.title) return res.status(400).json({ error: 'title is required' });
     if (!fields.slug) return res.status(400).json({ error: 'slug is required' });
 
@@ -155,6 +182,17 @@ async function addLesson(req, res, next) {
       return res.status(400).json({ error: errorMessage });
     }
 
+    // The file is visible but Drive will not hand over its bytes, so the lesson
+    // could never play. Refuse it now rather than show learners a broken player.
+    if (!driveMetadata.canDownload) {
+      return res.status(400).json({
+        error:
+          `"${driveMetadata.name}" has downloading turned off in Google Drive, so it cannot be streamed. ` +
+          'In Drive, open the file → Share → ⚙ Settings → tick "Viewers and commenters can see the ' +
+          'option to download, print, and copy", then add the lesson again.',
+      });
+    }
+
     // Get the next order number
     const lastLesson = await Lesson.findOne({ courseId }).sort('-order');
     const order = lastLesson ? lastLesson.order + 1 : 1;
@@ -180,10 +218,9 @@ async function addLesson(req, res, next) {
     course.lessons.push(lesson._id);
     await course.save();
 
-    // Notify every student who currently has access to this course.
-    const grants = await CourseAccess.find({ courseId: course._id, active: true }).select('studentId');
+    // Notify every learner who can currently open this course (grants + Full Access).
     await notifyUsers(
-      grants.map((g) => g.studentId),
+      await learnerIdsWithAccess(course._id),
       {
         type: 'new_lesson',
         title: 'New lesson added',
@@ -207,8 +244,13 @@ async function deleteCourse(req, res, next) {
       return res.status(404).json({ error: 'Course not found' });
     }
 
-    // Delete associated lessons
-    await Lesson.deleteMany({ courseId: id });
+    // Delete associated lessons, study materials (and who they were shared with) and reviews
+    await Promise.all([
+      Lesson.deleteMany({ courseId: id }),
+      Resource.deleteMany({ courseId: id }),
+      ResourceAccess.deleteMany({ courseId: id }),
+      Review.deleteMany({ courseId: id }),
+    ]);
     
     // Delete the course
     await Course.findByIdAndDelete(id);
@@ -261,6 +303,8 @@ async function updateCourse(req, res, next) {
   try {
     const { id } = req.params;
     const fields = buildCourseFields(req.body);
+    const linkError = validateCourseLinks(fields);
+    if (linkError) return res.status(400).json({ error: linkError });
 
     if (fields.slug) {
       const clash = await Course.findOne({ slug: fields.slug, _id: { $ne: id } });
@@ -282,9 +326,8 @@ async function updateCourse(req, res, next) {
     }
 
     if (req.body?.notifyStudents) {
-      const grants = await CourseAccess.find({ courseId: course._id, active: true }).select('studentId');
       await notifyUsers(
-        grants.map((g) => g.studentId),
+        await learnerIdsWithAccess(course._id),
         {
           type: 'course_update',
           title: 'Course updated',
@@ -541,12 +584,11 @@ async function resolveAudience(type, courseId) {
     return Enrollment.distinct('studentId', { status: 'pending', ...(courseId ? { courseId } : {}) });
   }
 
-  if (courseId && type !== 'new_course') {
-    return activeLearnerIds({ _id: { $in: await liveLearnerIds(courseId) } });
-  }
+  if (courseId && type !== 'new_course') return learnerIdsWithAccess(courseId);
 
   if (type === 'new_course') {
-    return activeLearnerIds({ _id: { $nin: await liveLearnerIds(courseId) } });
+    // Full Access learners already have every course.
+    return activeLearnerIds({ _id: { $nin: await liveLearnerIds(courseId) }, fullAccess: { $ne: true } });
   }
   return activeLearnerIds();
 }
@@ -559,7 +601,11 @@ async function liveLearnerIds(courseId) {
 
 /** Tells every learner a course is now available. Returns how many were told. */
 async function announceCourse(course) {
-  const recipients = await activeLearnerIds({ _id: { $nin: await liveLearnerIds(course._id) } });
+  // Full Access learners already have it, so "new course" is news only to the rest.
+  const recipients = await activeLearnerIds({
+    _id: { $nin: await liveLearnerIds(course._id) },
+    fullAccess: { $ne: true },
+  });
   await notifyUsers(
     recipients,
     {
@@ -672,18 +718,66 @@ async function broadcastNotification(req, res, next) {
   }
 }
 
+const RESOURCE_TYPES = ['pdf', 'doc', 'slides', 'link'];
+
+/**
+ * Validates a study-material body. With `partial`, only the fields present
+ * are checked (an edit). Returns { fields } or { error }.
+ */
+function buildResourceFields(body = {}, { partial = false } = {}) {
+  const fields = {};
+
+  if (!partial || body.title !== undefined) {
+    const title = String(body.title ?? '').trim();
+    if (!title) return { error: 'Give the material a title.' };
+    if (title.length > 160) return { error: 'Keep the title under 160 characters.' };
+    fields.title = title;
+  }
+  if (body.description !== undefined) fields.description = String(body.description).trim().slice(0, 1000);
+  if (!partial || body.url !== undefined) {
+    const link = checkUrl(body.url, { allowEmpty: false, label: 'The material link' });
+    if (link.error) return { error: link.error };
+    fields.url = normaliseDriveLink(link.value);
+  }
+  if (!partial || body.type !== undefined) {
+    const type = body.type || 'pdf';
+    if (!RESOURCE_TYPES.includes(type)) return { error: 'Type must be PDF, Document, Slides or Link.' };
+    fields.type = type;
+  }
+  return { fields };
+}
+
 /** POST /api/admin/resources  body: { courseId, title, description, url, type } */
 async function addResource(req, res, next) {
   try {
-    const { courseId, title, description, url, type } = req.body || {};
-    if (!courseId || !title || !url) {
-      return res.status(400).json({ error: 'courseId, title, and url are required' });
-    }
+    const { courseId } = req.body || {};
+    if (!courseId || !mongoose.isValidObjectId(courseId)) return res.status(400).json({ error: 'Choose a course.' });
+
+    const { fields, error } = buildResourceFields(req.body);
+    if (error) return res.status(400).json({ error });
 
     const course = await Course.findById(courseId);
     if (!course) return res.status(404).json({ error: 'Course not found' });
 
-    const resource = await Resource.create({ courseId, title, description, url, type });
+    const resource = await Resource.create({ courseId, ...fields });
+
+    // Learners who can open the course see the new material straight away.
+    await notifyUsers(await learnerIdsWithAccess(course._id), {
+      type: 'course_update',
+      title: 'New study material',
+      message: `"${resource.title}" was added to ${course.title}.`,
+      courseId: course._id,
+      link: '/resources',
+    });
+
+    await activity.log(req, {
+      category: 'course',
+      action: 'resource.created',
+      summary: `Added study material "${resource.title}" to "${course.title}"`,
+      entityType: 'course',
+      entityId: course._id,
+    });
+
     res.status(201).json(resource);
   } catch (err) {
     next(err);
@@ -693,12 +787,10 @@ async function addResource(req, res, next) {
 /** PUT /api/admin/resources/:id */
 async function updateResource(req, res, next) {
   try {
-    const { title, description, url, type } = req.body || {};
-    const resource = await Resource.findByIdAndUpdate(
-      req.params.id,
-      { title, description, url, type },
-      { new: true }
-    );
+    const { fields, error } = buildResourceFields(req.body, { partial: true });
+    if (error) return res.status(400).json({ error });
+
+    const resource = await Resource.findByIdAndUpdate(req.params.id, fields, { new: true, runValidators: true });
     if (!resource) return res.status(404).json({ error: 'Resource not found' });
     res.json(resource);
   } catch (err) {
@@ -706,11 +798,12 @@ async function updateResource(req, res, next) {
   }
 }
 
-/** DELETE /api/admin/resources/:id */
+/** DELETE /api/admin/resources/:id — also withdraws it from anyone it was shared with. */
 async function deleteResource(req, res, next) {
   try {
     const resource = await Resource.findByIdAndDelete(req.params.id);
     if (!resource) return res.status(404).json({ error: 'Resource not found' });
+    await ResourceAccess.deleteMany({ resourceId: resource._id });
     res.json({ success: true });
   } catch (err) {
     next(err);

@@ -2,12 +2,27 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 import Logo from '../common/Logo.jsx';
+import { resolveMediaUrl } from '../../api/client';
+import { useBranding } from '../../context/BrandingContext.jsx';
 
 /**
- * Split-screen shell shared by Login and Register: branded education panel on
- * the left (hidden below `lg`), form on the right.
+ * Split-screen shell shared by Login, Register and the password pages:
+ * branded panel on the left (hidden below `lg`), form on the right.
+ *
+ * The panel's heading, text, bullet points and optional picture are edited
+ * by the admin team in Admin → LMS settings → Sign-in page. `points` passed by
+ * a page is only a fallback for when the admin has cleared every bullet.
  */
-export default function AuthLayout({ title, subtitle, points = [], children, footer }) {
+export default function AuthLayout({ title, subtitle, points: fallbackPoints = [], children, footer }) {
+  const { branding, loginPage } = useBranding();
+
+  const configuredPoints = String(loginPage.points || '')
+    .split(/\r?\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const points = configuredPoints.length ? configuredPoints : fallbackPoints;
+  const image = loginPage.imageUrl ? resolveMediaUrl(loginPage.imageUrl) : '';
+
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       {/* Brand panel */}
@@ -32,13 +47,12 @@ export default function AuthLayout({ title, subtitle, points = [], children, foo
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           className="relative mt-auto max-w-md"
         >
-          <h2 className="text-[2rem] leading-tight tracking-tight text-white">
-            Learning that remembers where you left off.
-          </h2>
-          <p className="mt-4 text-[15px] leading-relaxed text-primary-100">
-            Structured lessons, secure video delivery and progress tracking that keeps every course
-            moving forward.
-          </p>
+          {loginPage.heading && (
+            <h2 className="text-[2rem] leading-tight tracking-tight text-white">{loginPage.heading}</h2>
+          )}
+          {loginPage.description && (
+            <p className="mt-4 whitespace-pre-line text-[15px] leading-relaxed text-primary-100">{loginPage.description}</p>
+          )}
 
           {points.length > 0 && (
             <ul className="mt-9 space-y-3.5">
@@ -50,22 +64,27 @@ export default function AuthLayout({ title, subtitle, points = [], children, foo
               ))}
             </ul>
           )}
+
+          {image && (
+            <img
+              src={image}
+              alt={loginPage.imageAlt || ''}
+              className="mt-9 max-h-64 w-full rounded-2xl bg-white/10 object-cover shadow-lg ring-1 ring-white/20"
+            />
+          )}
         </motion.div>
 
         <p className="relative mt-auto pt-10 text-xs text-primary-200/80">
-          &copy; {new Date().getFullYear()} AnalyticsAvenue EduTech
+          &copy; {new Date().getFullYear()} {branding.platformName} {branding.tagline}
         </p>
       </aside>
 
       {/* Form panel */}
       <div className="flex flex-col bg-white">
-        <div className="flex items-center justify-between p-5 sm:p-6">
-          <span className="lg:hidden">
-            <Logo />
-          </span>
+        <div className="flex items-center justify-end p-5 sm:p-6">
           <Link
             to="/"
-            className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-ink-500 transition hover:text-ink-900"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-ink-500 transition hover:text-ink-900"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             Back to home
@@ -79,6 +98,9 @@ export default function AuthLayout({ title, subtitle, points = [], children, foo
             transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
             className="w-full max-w-md"
           >
+            {/* The brand mark sits above the form on every screen size. */}
+            <Logo className="mb-8" />
+
             <h1 className="text-[1.75rem] tracking-tight">{title}</h1>
             {subtitle && <p className="mt-2 text-sm text-ink-600">{subtitle}</p>}
 

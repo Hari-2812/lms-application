@@ -25,6 +25,7 @@ import Rating from '../components/common/Rating.jsx';
 import RichText from '../components/common/RichText.jsx';
 import Tabs from '../components/common/Tabs.jsx';
 import CourseProgress from '../components/courses/CourseProgress.jsx';
+import CourseReviews from '../components/courses/CourseReviews.jsx';
 import CourseThumbnail from '../components/courses/CourseThumbnail.jsx';
 import Curriculum from '../components/courses/Curriculum.jsx';
 import IntroVideo from '../components/courses/IntroVideo.jsx';
@@ -338,29 +339,7 @@ export default function CourseDetails() {
             </section>
           )}
 
-          {tab === 'reviews' && (
-            <section className="card p-6">
-              <h2 className="text-base font-semibold text-ink-900">Student reviews</h2>
-              {course.rating ? (
-                <div className="mt-4 flex items-baseline gap-4">
-                  <p className="text-4xl font-bold text-ink-900">{course.rating.toFixed(1)}</p>
-                  <div>
-                    <Rating value={course.rating} size="md" />
-                    <p className="mt-1 text-[13px] text-ink-500">
-                      Based on {course.ratingCount} student ratings
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-3 text-sm text-ink-600">
-                  This course has no ratings yet — be the first to leave one once you finish.
-                </p>
-              )}
-              <p className="mt-5 rounded-lg bg-surface-muted p-3.5 text-[13px] leading-relaxed text-ink-600">
-                Individual written reviews will appear here once the reviews API is available.
-              </p>
-            </section>
-          )}
+          {tab === 'reviews' && <CourseReviews courseId={course._id} />}
         </div>
 
         {/* --- Enrolment / progress panel ------------------------------ */}
@@ -417,6 +396,18 @@ export default function CourseDetails() {
                     One-time payment · lifetime access
                   </p>
                 </div>
+              )}
+
+              {/* Limited Access: some of this course's materials were shared
+                  with the learner without the course itself. */}
+              {locked && course.hasSelectedMaterials && (
+                <Link
+                  to="/resources"
+                  className="mb-4 flex items-start gap-2.5 rounded-lg bg-primary-50 p-3 text-[13px] font-medium text-primary-800 transition hover:bg-primary-100"
+                >
+                  <BookOpen className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>Some study materials from this course are shared with you — open them in Resources.</span>
+                </Link>
               )}
 
               {primaryAction ? (

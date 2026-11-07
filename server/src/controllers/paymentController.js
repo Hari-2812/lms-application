@@ -456,7 +456,9 @@ async function createRazorpayOrder(req, res, next) {
 
     const studentId = req.user._id;
     const grant = await CourseAccess.findOne({ studentId, courseId: course._id });
-    if (isGrantLive(grant)) return res.status(400).json({ error: 'You already have access to this course' });
+    if (req.user.fullAccess || isGrantLive(grant)) {
+      return res.status(400).json({ error: 'You already have access to this course' });
+    }
 
     let enrollment = await Enrollment.findOne({ studentId, courseId: course._id });
     if (enrollment?.status === 'completed') {

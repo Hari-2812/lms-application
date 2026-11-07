@@ -13,8 +13,26 @@ const DEFAULTS = {
   branding: {
     platformName: 'AnalyticsAvenue',
     tagline: 'EduTech',
-    logoUrl: '',
     supportEmail: '',
+  },
+  // Left panel of the sign-in / sign-up pages (Settings → Sign-in page).
+  loginPage: {
+    heading: 'Learning that remembers where you left off.',
+    description:
+      'Structured lessons, secure video delivery and progress tracking that keeps every course moving forward.',
+    points: [
+      'Pick up any lesson exactly where you stopped',
+      'Track completion across every enrolled course',
+      'Earn a certificate when a course is finished',
+    ].join('\n'),
+    imageUrl: '',
+    imageAlt: '',
+  },
+  // Landing page hero image (Settings → Homepage). Empty = the built-in photo.
+  homepage: {
+    heroImageUrl: '',
+    heroImageAlt: 'Analytics Avenue data expert',
+    heroImageLink: '',
   },
   certificate: {
     companyName: 'Analytics Avenue',
@@ -39,6 +57,8 @@ export function BrandingProvider({ children }) {
         .then((data) =>
           setSettings({
             branding: { ...DEFAULTS.branding, ...data.branding },
+            loginPage: { ...DEFAULTS.loginPage, ...data.loginPage },
+            homepage: { ...DEFAULTS.homepage, ...data.homepage },
             certificate: { ...DEFAULTS.certificate, ...data.certificate },
             payments: { ...DEFAULTS.payments, ...data.payments },
             learning: { ...DEFAULTS.learning, ...data.learning },

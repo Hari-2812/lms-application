@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { API_ORIGIN } from '../api/client';
 
 export function LoadingState({ label = 'Loading…' }) {
   return (
@@ -28,6 +29,13 @@ export function ErrorState({ message }) {
     displayMessage
   );
   const isForbidden = /admin access required|access/i.test(displayMessage);
+
+  // Where this build actually sends API calls: VITE_API_URL, or this site's
+  // own /api (which the dev server proxies to the local API).
+  const apiTarget = API_ORIGIN || `${window.location.origin}/api`;
+  // axios says "Network Error" when no response could be read at all — the
+  // API is down, or (on another domain) it does not accept this site (CORS).
+  const isNetworkError = /network error/i.test(displayMessage);
 
   return (
     <div role="alert" className="card flex items-start gap-3 p-5">
@@ -58,11 +66,19 @@ export function ErrorState({ message }) {
           </p>
         ) : (
           <p className="mt-2 text-[13px] text-ink-500">
-            Check that the API is running on{' '}
-            <code className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[12px]">
-              http://localhost:5000
-            </code>
-            , then reload the page.
+            {isNetworkError ? 'No answer from the API at ' : 'Check that the API is running at '}
+            <code className="break-all rounded bg-ink-100 px-1 py-0.5 font-mono text-[12px]">{apiTarget}</code>
+            {isNetworkError && API_ORIGIN ? (
+              <>
+                . Check that it is running and that its CLIENT_URL allows{' '}
+                <code className="break-all rounded bg-ink-100 px-1 py-0.5 font-mono text-[12px]">
+                  {window.location.origin}
+                </code>
+                , then reload the page.
+              </>
+            ) : (
+              ', then reload the page.'
+            )}
           </p>
         )}
       </div>

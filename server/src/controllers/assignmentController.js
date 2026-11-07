@@ -1,9 +1,8 @@
 const Assignment = require('../models/Assignment');
 const Course = require('../models/Course');
-const CourseAccess = require('../models/CourseAccess');
 const Submission = require('../models/Submission');
 const activity = require('../services/activityService');
-const { isGrantLive } = require('../services/enrolmentService');
+const { grantedCourseIds, learnerIdsWithAccess } = require('../services/enrolmentService');
 const { notifyUsers, activeLearnerIds } = require('../services/notificationService');
 
 /**
@@ -38,15 +37,10 @@ const dueText = (date) =>
     : '';
 
 async function announce(assignment) {
-  let recipients;
-  if (assignment.courseId) {
-    const grants = await CourseAccess.find({ courseId: assignment.courseId, active: true });
-    const live = grants.filter(isGrantLive).map((g) => g.studentId);
-    // Suspended learners are filtered out by activeLearnerIds.
-    recipients = await activeLearnerIds({ _id: { $in: live } });
-  } else {
-    recipients = await activeLearnerIds();
-  }
+  // Course grants plus Full Access; suspended learners are filtered out either way.
+  const recipients = assignment.courseId
+    ? await learnerIdsWithAccess(assignment.courseId)
+    : await activeLearnerIds();
 
   const course = assignment.courseId ? await Course.findById(assignment.courseId).select('title') : null;
   await notifyUsers(
@@ -70,13 +64,14 @@ async function announce(assignment) {
 /** GET /api/assignments — open assignments for the courses this learner has. */
 async function listForLearner(req, res, next) {
   try {
-    const grants = await CourseAccess.find({ studentId: req.user._id, active: true });
-    const courseIds = grants.filter(isGrantLive).map((g) => g.courseId);
+    // Full Access learners get every course's tasks.
+    const filter = { published: true };
+    if (!req.user.fullAccess) {
+      const courseIds = await grantedCourseIds(req.user._id);
+      filter.$or = [{ courseId: null }, { courseId: { $exists: false } }, { courseId: { $in: courseIds } }];
+    }
 
-    const assignments = await Assignment.find({
-      published: true,
-      $or: [{ courseId: null }, { courseId: { $exists: false } }, { courseId: { $in: courseIds } }],
-    })
+    const assignments = await Assignment.find(filter)
       .populate('courseId', 'title')
       .sort({ dueDate: 1, createdAt: -1 });
 

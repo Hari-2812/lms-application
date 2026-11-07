@@ -33,10 +33,8 @@ async function issue(req, res, next) {
 }
 
 /**
- * POST /api/certificates/sample  body: { recipientName, courseTitle, ... }
- * The free sample flow: fill in the inputs, get a real generated certificate
- * back. Saved to the signed-in student's Certificate section; returned as a
- * one-off preview for anonymous visitors.
+ * POST /api/admin/certificates/sample  body: { recipientName, courseTitle, ... }
+ * Staff only: a one-off, unsaved preview of the template with the given details.
  */
 async function sample(req, res, next) {
   try {
@@ -51,8 +49,7 @@ async function sample(req, res, next) {
       return res.status(400).json({ error: 'Name or course title is too long' });
     }
 
-    const certificate = await certificateService.issueSample({
-      studentId: req.user?._id,
+    const certificate = certificateService.issueSample({
       recipientName: name,
       courseTitle: title,
       instructor: String(instructor || '').trim().slice(0, 80),
@@ -60,7 +57,7 @@ async function sample(req, res, next) {
       hours,
     });
 
-    res.status(201).json(certificate);
+    res.json(certificate);
   } catch (err) {
     next(err);
   }

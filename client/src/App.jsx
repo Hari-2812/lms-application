@@ -44,6 +44,8 @@ const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
 const AdminTeam = lazy(() => import('./pages/admin/AdminTeam.jsx'));
 const AdminActivity = lazy(() => import('./pages/admin/AdminActivity.jsx'));
 const AdminAccount = lazy(() => import('./pages/admin/AdminAccount.jsx'));
+const AdminReviews = lazy(() => import('./pages/admin/AdminReviews.jsx'));
+const AdminEnquiries = lazy(() => import('./pages/admin/AdminEnquiries.jsx'));
 const Checkout = lazy(() => import('./pages/Checkout.jsx'));
 const Events = lazy(() => import('./pages/Events.jsx'));
 const TaskSubmission = lazy(() => import('./pages/TaskSubmission.jsx'));
@@ -169,6 +171,8 @@ export default function App() {
               <Route path="tasks" element={<AdminTasks />} />
               <Route path="events" element={<SuperAdminOnly><AdminEvents /></SuperAdminOnly>} />
               <Route path="certificates" element={<AdminCertificates />} />
+              <Route path="reviews" element={<AdminReviews />} />
+              <Route path="enquiries" element={<AdminEnquiries />} />
               <Route path="notifications" element={<AdminNotifications />} />
               <Route path="settings" element={<SuperAdminOnly><AdminSettings /></SuperAdminOnly>} />
               <Route path="team" element={<SuperAdminOnly><AdminTeam /></SuperAdminOnly>} />

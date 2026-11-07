@@ -45,7 +45,7 @@ const TYPES = {
   certificate: { icon: Award, tone: 'bg-amber-50 text-amber-600', label: 'Certificate' },
   task: { icon: ListChecks, tone: 'bg-violet-50 text-violet-600', label: 'Task' },
   task_review: { icon: ClipboardCheck, tone: 'bg-violet-50 text-violet-600', label: 'Task review' },
-  event: { icon: CalendarClock, tone: 'bg-sky-50 text-sky-600', label: 'Event' },
+  event: { icon: CalendarClock, tone: 'bg-sky-50 text-sky-600', label: 'Event / session' },
   payment: { icon: CreditCard, tone: 'bg-emerald-50 text-emerald-600', label: 'Payment' },
   announcement: { icon: Megaphone, tone: 'bg-ink-100 text-ink-600', label: 'Announcement' },
 };
@@ -57,6 +57,7 @@ const FILTERS = [
   { value: 'unread', label: 'Unread' },
   { value: 'course', label: 'Courses' },
   { value: 'tasks', label: 'Tasks' },
+  { value: 'events', label: 'Events & sessions' },
   { value: 'certificate', label: 'Certificates' },
   { value: 'other', label: 'Other' },
 ];
@@ -68,6 +69,7 @@ function groupOf(type) {
   }
   if (type === 'certificate') return 'certificate';
   if (type === 'task' || type === 'task_review') return 'tasks';
+  if (type === 'event') return 'events';
   return 'other';
 }
 
@@ -98,7 +100,7 @@ export default function Notifications() {
   usePageMeta('Notifications', 'Course updates, tasks, payments, events and certificates.');
 
   const counts = useMemo(() => {
-    const tally = { all: notifications.length, unread: unreadCount, course: 0, tasks: 0, certificate: 0, other: 0 };
+    const tally = { all: notifications.length, unread: unreadCount, course: 0, tasks: 0, events: 0, certificate: 0, other: 0 };
     for (const notification of notifications) tally[groupOf(notification.type)] += 1;
     return tally;
   }, [notifications, unreadCount]);

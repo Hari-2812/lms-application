@@ -31,6 +31,14 @@ const userSchema = new mongoose.Schema(
     suspendedReason: { type: String, default: '' },
     lastLoginAt: { type: Date },
 
+    // --- course access -------------------------------------------------------
+    // Full Access: every course and every study material, including courses
+    // added later. Individually granted or paid courses (CourseAccess rows)
+    // are kept separately, so switching this off never takes those away.
+    fullAccess: { type: Boolean, default: false, index: true },
+    fullAccessGrantedAt: { type: Date },
+    fullAccessGrantedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
     // --- security ----------------------------------------------------------
     // Tokens issued before this moment are rejected, so changing or resetting
     // a password signs out every other session.

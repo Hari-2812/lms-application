@@ -1,18 +1,39 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { GraduationCap, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useBranding } from '../../context/BrandingContext.jsx';
+import { resolveMediaUrl } from '../../api/client';
+import { safeExternalUrl } from '../../utils/url.js';
 import SmartImg from './SmartImg.jsx';
+import EnquiryModal from './EnquiryModal.jsx';
 // Files in /public are served from the site root — reference them by URL, don't import them.
-const herosecimg = '/homepage/mentors/mentooors1.jpeg';
+const defaultHeroImage = '/homepage/mentors/mentooors1.jpeg';
 
 const points = ['Data Analytics', 'Data Engineering', 'BI', 'Machine Learning', 'Statistics', 'Agentic AI'];
 
 export default function HeroSection() {
   const { isAuthenticated } = useAuth();
-  const scrollToPrograms = (e) => {
-    e.preventDefault();
-    document.getElementById('liveBatchesSection')?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const { homepage } = useBranding();
+  const [enquiryOpen, setEnquiryOpen] = useState(false);
+
+  // The right-hand image is set in Admin → LMS settings → Homepage, e.g. for an
+  // upcoming event, and can link to that event's page.
+  const heroImage = homepage.heroImageUrl ? resolveMediaUrl(homepage.heroImageUrl) : defaultHeroImage;
+  const heroLink = safeExternalUrl(homepage.heroImageLink);
+  const photo = (
+    <SmartImg
+      key={heroImage}
+      src={heroImage}
+      alt={homepage.heroImageAlt || 'Analytics Avenue'}
+      loading="eager"
+      fallback={
+        <div className="aa-hero__photo-fallback">
+          <GraduationCap size={120} strokeWidth={1.2} />
+        </div>
+      }
+    />
+  );
 
   return (
     <section className="aa-hero">
@@ -28,40 +49,36 @@ export default function HeroSection() {
           </h1>
           <p className="aa-hero__p">Rebuild the projects worked by data experts across 10+ domains</p>
 
-          {/* Items fade in one by one, 1s apart (replaces the old DOM typing script). */}
           <ul className="aa-hero__list">
-            {points.map((point, i) => (
-              <li key={point} style={{ animationDelay: `${i}s` }}>
-                {point}
-              </li>
+            {points.map((point) => (
+              <li key={point}>{point}</li>
             ))}
           </ul>
 
           <div className="aa-hero__ctas">
-            <a href="#liveBatchesSection" onClick={scrollToPrograms} className="aa-hero__cta">
-              Explore All Programs <span aria-hidden="true">&gt;</span>
-            </a>
+            <button type="button" onClick={() => setEnquiryOpen(true)} className="aa-hero__cta">
+              Enroll Now <span aria-hidden="true">&gt;</span>
+            </button>
             {/* /dashboard is protected: signed-out visitors go to /login and come back here after. */}
             <Link to="/dashboard" className="aa-hero__cta is-secondary">
               <LayoutDashboard size={18} aria-hidden="true" />
-              {isAuthenticated ? 'Go to Dashboard' : 'Login to LMS Dashboard'}
+              {isAuthenticated ? 'Go to Dashboard' : 'Login to Dashboard'}
             </Link>
           </div>
         </div>
       </div>
 
       <div className="aa-hero__photo">
-        <SmartImg
-          src={herosecimg}
-          alt="Analytics Avenue data expert"
-          loading="eager"
-          fallback={
-            <div className="aa-hero__photo-fallback">
-              <GraduationCap size={120} strokeWidth={1.2} />
-            </div>
-          }
-        />
+        {heroLink ? (
+          <a href={heroLink} target="_blank" rel="noopener noreferrer" aria-label={homepage.heroImageAlt || 'Open announcement'}>
+            {photo}
+          </a>
+        ) : (
+          photo
+        )}
       </div>
+
+      <EnquiryModal open={enquiryOpen} onClose={() => setEnquiryOpen(false)} />
     </section>
   );
 }

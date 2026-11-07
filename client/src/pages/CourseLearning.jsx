@@ -4,15 +4,19 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  ExternalLink,
   FileText,
+  FolderOpen,
+  Link as LinkIcon,
   ListVideo,
   NotebookPen,
-  ShieldCheck,
+  Presentation,
   X,
 } from 'lucide-react';
 import {
   getCourse,
   getCourseLessons,
+  getCourseResources,
   getProgress,
   saveProgress,
   streamUrl,
@@ -20,8 +24,12 @@ import {
 } from '../api/client';
 import Badge from '../components/common/Badge.jsx';
 import Button from '../components/common/Button.jsx';
+import Logo from '../components/common/Logo.jsx';
 import ProgressBar from '../components/common/ProgressBar.jsx';
+import Tabs from '../components/common/Tabs.jsx';
 import Curriculum from '../components/courses/Curriculum.jsx';
+import CourseReviews from '../components/courses/CourseReviews.jsx';
+import { safeExternalUrl } from '../utils/url.js';
 import VideoPlayer from '../components/VideoPlayer.jsx';
 import { ErrorState, LoadingState } from '../components/States.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -32,6 +40,9 @@ const SAVE_INTERVAL_MS = 8000;
 
 /** Per-lesson notes are local to the browser until a notes API exists. */
 const notesKey = (lessonId) => `lms.notes.${lessonId}`;
+
+const RESOURCE_ICON = { pdf: FileText, doc: FileText, slides: Presentation, link: LinkIcon };
+const RESOURCE_LABEL = { pdf: 'PDF', doc: 'Document', slides: 'Slides', link: 'Link' };
 
 export default function CourseLearning() {
   const { courseId, lessonId } = useParams();
@@ -45,8 +56,12 @@ export default function CourseLearning() {
   const [error, setError] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
   const [notes, setNotes] = useState('');
+  const [resources, setResources] = useState([]);
+  const [resourcesError, setResourcesError] = useState('');
+  const [tab, setTab] = useState('resources');
 
   const lastSavedAt = useRef(0);
+  const tabsRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +87,28 @@ export default function CourseLearning() {
       cancelled = true;
     };
   }, [courseId, lessonId]);
+
+  // Study materials for the course, listed under the video.
+  useEffect(() => {
+    let cancelled = false;
+    setResourcesError('');
+    getCourseResources(courseId)
+      .then((data) => !cancelled && setResources(data))
+      .catch((err) => {
+        if (cancelled) return;
+        setResources([]);
+        setResourcesError(toErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId]);
+
+  /** The "Resources" button: switch to the materials tab and bring it into view. */
+  const openResources = () => {
+    setTab('resources');
+    requestAnimationFrame(() => tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
 
   // Load whatever the student wrote against this lesson previously.
   useEffect(() => {
@@ -227,6 +264,10 @@ export default function CourseLearning() {
 
           <div className="mx-2 hidden h-5 w-px bg-ink-800 sm:block" />
 
+          <Logo to="/dashboard" tone="light" compact className="shrink-0" />
+
+          <div className="mx-2 hidden h-5 w-px bg-ink-800 sm:block" />
+
           <p className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{course.title}</p>
 
           <span className="hidden items-center gap-2 text-xs text-ink-400 sm:flex">
@@ -296,6 +337,14 @@ export default function CourseLearning() {
                     <span className="hidden sm:inline">Previous</span>
                   </Button>
 
+                  <Button variant="soft" onClick={openResources} aria-label={`Resources (${resources.length})`}>
+                    <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                    Resources
+                    <span className="rounded-md bg-white px-1.5 py-0.5 text-[11px] tabular-nums text-primary-700">
+                      {resources.length}
+                    </span>
+                  </Button>
+
                   <Button onClick={() => next && goTo(next)} disabled={!next}>
                     <span className="hidden sm:inline">Next lesson</span>
                     <span className="sm:hidden">Next</span>
@@ -304,58 +353,89 @@ export default function CourseLearning() {
                 </div>
               </section>
 
-              <div className="grid gap-6 lg:grid-cols-2">
-                <section className="card min-w-0 p-5">
-                  <div className="flex items-center gap-2">
-                    <NotebookPen className="h-4 w-4 text-ink-400" aria-hidden="true" />
-                    <h2 className="text-sm font-semibold text-ink-900">Your notes</h2>
-                  </div>
-                  <label htmlFor="lesson-notes" className="sr-only">
-                    Notes for this lesson
-                  </label>
-                  <textarea
-                    id="lesson-notes"
-                    value={notes}
-                    onChange={onNotesChange}
-                    rows={5}
-                    placeholder="Jot down anything you want to remember from this lesson…"
-                    className="field-input mt-3 resize-y leading-relaxed"
-                  />
-                  <p className="mt-2 text-[11px] text-ink-500">
-                    Saved in this browser. Notes sync once the notes API is available.
-                  </p>
-                </section>
+              <section ref={tabsRef} className="scroll-mt-20">
+                <Tabs
+                  value={tab}
+                  onChange={setTab}
+                  tabs={[
+                    { value: 'resources', label: 'Resources', count: resources.length },
+                    { value: 'reviews', label: 'Reviews' },
+                    { value: 'notes', label: 'Notes' },
+                  ]}
+                />
 
-                <section className="card min-w-0 p-5">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-ink-400" aria-hidden="true" />
-                    <h2 className="text-sm font-semibold text-ink-900">Resources</h2>
-                  </div>
-                  <p className="mt-3 text-[13px] leading-relaxed text-ink-600">
-                    This lesson has no downloadable attachments. Lesson resources will be listed
-                    here once the API exposes them.
-                  </p>
-
-                  <div className="mt-5 border-t border-ink-100 pt-4">
+                {tab === 'resources' && (
+                  <div className="card mt-4 p-5">
                     <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-emerald-600" aria-hidden="true" />
-                      <h3 className="text-[13px] font-semibold text-ink-900">Secure delivery</h3>
+                      <FolderOpen className="h-4 w-4 text-ink-400" aria-hidden="true" />
+                      <h2 className="text-sm font-semibold text-ink-900">Learning materials for this course</h2>
                     </div>
-                    <dl className="mt-2.5 space-y-1.5 text-[12px]">
-                      <div className="flex flex-wrap gap-x-2">
-                        <dt className="text-ink-500">Browser requests</dt>
-                        <dd className="break-all font-mono text-emerald-700">{streamUrl(lesson._id)}</dd>
-                      </div>
-                      <div className="flex flex-wrap gap-x-2">
-                        <dt className="text-ink-500">Browser never sees</dt>
-                        <dd className="font-mono text-ink-400 line-through">
-                          drive.google.com/file/…
-                        </dd>
-                      </div>
-                    </dl>
+                    {resourcesError ? (
+                      <p className="mt-3 text-[13px] text-red-600">{resourcesError}</p>
+                    ) : resources.length === 0 ? (
+                      <p className="mt-3 text-[13px] leading-relaxed text-ink-600">
+                        No study materials have been added to this course yet. They will appear here, and
+                        under Resources in the sidebar, as soon as they are.
+                      </p>
+                    ) : (
+                      <ul className="mt-4 space-y-2">
+                        {resources.map((resource) => {
+                          const Icon = RESOURCE_ICON[resource.type] || FileText;
+                          const href = safeExternalUrl(resource.url);
+                          return (
+                            <li key={resource.id}>
+                              <a
+                                href={href || undefined}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-disabled={!href}
+                                className="group flex items-center gap-3 rounded-xl border border-ink-100 bg-white p-3.5 transition hover:border-primary-200 hover:shadow-sm"
+                              >
+                                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary-50 text-primary-600">
+                                  <Icon className="h-5 w-5" aria-hidden="true" />
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-semibold text-ink-900">{resource.title}</span>
+                                  <span className="block truncate text-xs text-ink-500">
+                                    {RESOURCE_LABEL[resource.type] || 'File'}
+                                    {resource.description ? ` · ${resource.description}` : ''}
+                                  </span>
+                                </span>
+                                <span className="inline-flex shrink-0 items-center gap-1 text-[13px] font-semibold text-primary-700 group-hover:text-primary-800">
+                                  Open <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                                </span>
+                              </a>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </div>
-                </section>
-              </div>
+                )}
+
+                {tab === 'reviews' && <CourseReviews courseId={courseId} className="mt-4" />}
+
+                {tab === 'notes' && (
+                  <div className="card mt-4 p-5">
+                    <div className="flex items-center gap-2">
+                      <NotebookPen className="h-4 w-4 text-ink-400" aria-hidden="true" />
+                      <h2 className="text-sm font-semibold text-ink-900">Your notes</h2>
+                    </div>
+                    <label htmlFor="lesson-notes" className="sr-only">
+                      Notes for this lesson
+                    </label>
+                    <textarea
+                      id="lesson-notes"
+                      value={notes}
+                      onChange={onNotesChange}
+                      rows={5}
+                      placeholder="Jot down anything you want to remember from this lesson…"
+                      className="field-input mt-3 resize-y leading-relaxed"
+                    />
+                    <p className="mt-2 text-[11px] text-ink-500">Saved in this browser.</p>
+                  </div>
+                )}
+              </section>
             </div>
           </div>
         </div>

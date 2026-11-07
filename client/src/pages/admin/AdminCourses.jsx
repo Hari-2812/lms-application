@@ -28,6 +28,7 @@ import {
   updateCourse,
   updateLesson,
 } from '../../api/client';
+import { safeExternalUrl } from '../../utils/url.js';
 import { usePageMeta } from '../../components/layout/DashboardLayout.jsx';
 import Button from '../../components/common/Button.jsx';
 import Input from '../../components/common/Input.jsx';
@@ -135,13 +136,17 @@ export default function AdminCourses() {
 
   const handleAddResource = async (e) => {
     e.preventDefault();
+    if (!safeExternalUrl(newResource.url)) {
+      flash.error('The material link must be a full link starting with https://');
+      return;
+    }
     setAddingResource(true);
     try {
       const created = await addResource(newResource);
       setCourseResources((prev) =>
         prev[newResource.courseId] ? { ...prev, [newResource.courseId]: [...prev[newResource.courseId], created] } : prev
       );
-      flash.success(`Resource "${created.title}" added.`);
+      flash.success(`Resource "${created.title}" added. Learners with this course can open it from the Resources button under each lesson.`);
       setNewResource({ ...newResource, title: '', description: '', url: '' });
     } catch (err) {
       flash.error(toErrorMessage(err));
@@ -425,14 +430,29 @@ export default function AdminCourses() {
             </select>
           </div>
           <Input label="Title" required placeholder="e.g. Week 1 Handout" value={newResource.title} onChange={(e) => setNewResource({ ...newResource, title: e.target.value })} />
-          <Input
-            label="Link (PDF / Drive / doc URL)"
-            type="url"
-            required
-            placeholder="https://drive.google.com/file/d/..."
-            value={newResource.url}
-            onChange={(e) => setNewResource({ ...newResource, url: e.target.value })}
-          />
+          <div>
+            <Input
+              label="Link (PDF / Drive / doc URL)"
+              type="url"
+              required
+              placeholder="https://drive.google.com/file/d/..."
+              hint={'For Google Drive files, set sharing to "Anyone with the link – Viewer" so learners can open them.'}
+              error={newResource.url && !safeExternalUrl(newResource.url) ? 'Use a full link starting with https://' : undefined}
+              value={newResource.url}
+              onChange={(e) => setNewResource({ ...newResource, url: e.target.value })}
+            />
+            {safeExternalUrl(newResource.url) && (
+              <a
+                href={safeExternalUrl(newResource.url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-semibold text-primary-700 hover:text-primary-800"
+              >
+                <LinkIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                Open link to test it
+              </a>
+            )}
+          </div>
           <div className="md:col-span-2">
             <label className="field-label" htmlFor="resource-description">Description (optional)</label>
             <textarea
@@ -654,7 +674,7 @@ export default function AdminCourses() {
                                   </span>
                                   <div className="min-w-0">
                                     <p className="truncate text-sm font-medium text-ink-800">{resource.title}</p>
-                                    <a href={resource.url} target="_blank" rel="noopener noreferrer" className="block truncate text-xs text-primary-600 hover:underline">
+                                    <a href={safeExternalUrl(resource.url) || undefined} target="_blank" rel="noopener noreferrer" className="block truncate text-xs text-primary-600 hover:underline">
                                       {resource.url}
                                     </a>
                                   </div>

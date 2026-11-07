@@ -18,6 +18,8 @@ const assignmentController = require('../controllers/assignmentController');
 const settingsController = require('../controllers/settingsController');
 const teamController = require('../controllers/teamController');
 const insightsController = require('../controllers/adminInsightsController');
+const reviewController = require('../controllers/reviewController');
+const enquiryController = require('../controllers/enquiryController');
 const { requireAuth, optionalAuth, requireAdmin, requireSuperAdmin } = require('../middleware/authMiddleware');
 const { requireCourseAccess, resolveCourseId } = require('../middleware/courseAccess');
 const { uploadThumbnail } = require('../middleware/upload');
@@ -80,6 +82,9 @@ router.get('/admin/overview', ...staff, insightsController.getOverview);
 router.get('/admin/learners', ...staff, learnerController.listLearners);
 router.get('/admin/learners/:id', ...staff, learnerController.getLearner);
 router.patch('/admin/learners/:id/status', ...superAdmin, learnerController.setLearnerStatus);
+// Full Access (every course, now and later) and Limited Access to selected materials.
+router.patch('/admin/learners/:id/full-access', ...superAdmin, learnerController.setLearnerFullAccess);
+router.put('/admin/learners/:id/materials', ...superAdmin, learnerController.setLearnerMaterials);
 router.post('/admin/learners/:id/enrol', ...superAdmin, learnerController.enrolLearner);
 router.delete('/admin/learners/:id/enrol/:courseId', ...superAdmin, learnerController.unenrolLearner);
 router.post('/admin/users/:id/reset-password', ...superAdmin, learnerController.resetUserPassword);
@@ -109,8 +114,21 @@ router.delete('/admin/uploads/thumbnails/:filename', ...superAdmin, uploadContro
 // --- admin: notifications composer ---
 router.post('/admin/notifications', ...staff, adminController.broadcastNotification);
 
-// --- admin: certificates register ---
+// --- admin: certificates register (and the template preview) ---
 router.get('/admin/certificates', ...staff, insightsController.listCertificates);
+router.post('/admin/certificates/sample', ...staff, certificateController.sample);
+
+// --- admin: course reviews (Support / Reviewer can moderate) ---
+router.get('/admin/reviews', ...staff, reviewController.listAll);
+router.patch('/admin/reviews/:id', ...staff, reviewController.moderate);
+router.delete('/admin/reviews/:id', ...staff, reviewController.remove);
+
+// --- admin: "Enroll Now" enquiries and their Google Sheet copy ---
+// The literal /sync path is declared before /:id/sync.
+router.get('/admin/enquiries', ...staff, enquiryController.listAll);
+router.post('/admin/enquiries/sync', ...staff, enquiryController.resyncAll);
+router.post('/admin/enquiries/:id/sync', ...staff, enquiryController.resync);
+router.post('/admin/integrations/google-sheet/test', ...superAdmin, enquiryController.testSheet);
 
 // --- admin: settings, team, activity log ---
 router.get('/admin/settings', ...superAdmin, settingsController.getAdmin);
@@ -140,15 +158,27 @@ router.post('/admin/lessons', ...superAdmin, adminController.addLesson);
 router.put('/admin/lessons/:id', ...superAdmin, adminController.updateLesson);
 router.delete('/admin/lessons/:id', ...superAdmin, adminController.deleteLesson);
 
-// --- resources (study materials / PDFs) — same access grant as lessons ---
-router.get(
-  '/courses/:courseId/resources',
+// --- resources (study materials / PDFs) ---
+// Course access (or Full Access) shows all of a course's materials; Limited
+// Access shows just the ones shared with the learner. The controller decides.
+router.get('/courses/:courseId/resources', requireAuth, resourceController.listResourcesForCourse);
+router.get('/resources/mine', requireAuth, resourceController.listMine);
+
+// --- course reviews ---
+router.get('/courses/:courseId/reviews', optionalAuth, reviewController.listForCourse);
+router.post(
+  '/courses/:courseId/reviews',
   requireAuth,
   requireCourseAccess(resolveCourseId.fromParam('courseId')),
-  resourceController.listResourcesForCourse
+  reviewController.saveMine
 );
+router.delete('/courses/:courseId/reviews/mine', requireAuth, reviewController.deleteMine);
+
+// --- "Enroll Now" enquiry form (public; copied to the Google Sheet) ---
+router.post('/enquiries', optionalAuth, enquiryController.create);
 
 // --- admin resources ---
+router.get('/admin/resources', ...staff, resourceController.listAll);
 router.post('/admin/resources', ...superAdmin, adminController.addResource);
 router.put('/admin/resources/:id', ...superAdmin, adminController.updateResource);
 router.delete('/admin/resources/:id', ...superAdmin, adminController.deleteResource);
@@ -216,8 +246,7 @@ router.patch('/admin/submissions/:id', ...staff, submissionController.review);
 router.get('/certificates/verify/:serial', certificateController.verify);
 router.get('/certificates', requireAuth, certificateController.listMine);
 router.post('/certificates/issue', requireAuth, certificateController.issue);
-// The sample flow works signed out (preview only) and signed in (saved).
-router.post('/certificates/sample', optionalAuth, certificateController.sample);
+// Sample certificates are an admin-only preview now: POST /admin/certificates/sample.
 router.delete('/certificates/:id', requireAuth, certificateController.remove);
 
 // --- enrolment / checkout ---

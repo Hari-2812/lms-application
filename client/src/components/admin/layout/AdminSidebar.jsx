@@ -11,8 +11,10 @@ import {
   LayoutDashboard,
   LogOut,
   MonitorPlay,
+  PhoneCall,
   Settings,
   ShieldCheck,
+  Star,
   UserCog,
   Users,
   X,
@@ -37,6 +39,7 @@ const GROUPS = [
     links: [
       { to: '/admin/learners', label: 'Learners', icon: Users },
       { to: '/admin/payments', label: 'Payments', icon: CreditCard },
+      { to: '/admin/enquiries', label: 'Enquiries', icon: PhoneCall },
     ],
   },
   {
@@ -46,6 +49,7 @@ const GROUPS = [
       { to: '/admin/tasks', label: 'Tasks & reviews', icon: ClipboardCheck },
       { to: '/admin/events', label: 'Events', icon: CalendarClock, superOnly: true },
       { to: '/admin/certificates', label: 'Certificates', icon: Award },
+      { to: '/admin/reviews', label: 'Reviews', icon: Star },
     ],
   },
   {

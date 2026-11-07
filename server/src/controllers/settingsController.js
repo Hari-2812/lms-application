@@ -1,9 +1,13 @@
 const activity = require('../services/activityService');
 const mailService = require('../services/mailService');
 const settingsService = require('../services/settingsService');
+const driveService = require('../services/googleDriveService');
 
 const SECTION_LABELS = {
   branding: 'Branding',
+  loginPage: 'Sign-in page',
+  homepage: 'Homepage',
+  integrations: 'Google Sheet',
   certificate: 'Certificate template',
   payments: 'Payment gateway',
   email: 'Email',
@@ -20,11 +24,19 @@ async function getPublic(_req, res, next) {
   }
 }
 
+/** The settings form's payload, plus the address the admin shares the Google Sheet with. */
+async function adminPayload(settings) {
+  return {
+    settings: settingsService.forAdmin(settings),
+    emailConfigured: await mailService.isConfigured(),
+    serviceAccountEmail: driveService.getConfigSummary().clientEmail || null,
+  };
+}
+
 /** GET /api/admin/settings */
 async function getAdmin(_req, res, next) {
   try {
-    const settings = await settingsService.get();
-    res.json({ settings: settingsService.forAdmin(settings), emailConfigured: await mailService.isConfigured() });
+    res.json(await adminPayload(await settingsService.get()));
   } catch (err) {
     next(err);
   }
@@ -68,7 +80,7 @@ async function updateAdmin(req, res, next) {
       });
     }
 
-    res.json({ settings: settingsService.forAdmin(settings), emailConfigured: await mailService.isConfigured() });
+    res.json(await adminPayload(settings));
   } catch (err) {
     next(err);
   }

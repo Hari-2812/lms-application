@@ -131,6 +131,14 @@ async function getLessonVideoStream(lessonId, rangeHeader) {
       err.message =
         `Drive file for lesson "${lesson.title}" was not found, or is not shared with the ` +
         'service account. Run `npm run drive:check`.';
+    } else if (status === 403 && driveService.isDownloadBlocked(err)) {
+      // The owner turned on "Viewers and commenters can't download, print or
+      // copy". The service account is a Viewer, so Drive refuses the bytes.
+      err.status = 403;
+      err.message =
+        `The Drive video for lesson "${lesson.title}" has downloading turned off, so it cannot be ` +
+        'streamed. In Google Drive, open the file → Share → ⚙ Settings → tick "Viewers and ' +
+        'commenters can see the option to download, print, and copy".';
     } else if (status === 403) {
       err.status = 403;
       err.message =
@@ -140,13 +148,19 @@ async function getLessonVideoStream(lessonId, rangeHeader) {
     throw err;
   }
 
-  const headers = driveResponse.headers || {};
+  // gaxios 7+ returns a fetch `Headers` object (read with .get()); older
+  // versions returned a plain object. Bracket access on a Headers object is
+  // always undefined, which sent 206 responses with no Content-Range and the
+  // browser refused to play them.
+  const raw = driveResponse.headers || {};
+  const header = (name) => (typeof raw.get === 'function' ? raw.get(name) : raw[name]) || null;
+  const contentLength = header('content-length');
 
   return {
     status: driveResponse.status === 206 ? 206 : 200,
-    contentType: headers['content-type'] || 'video/mp4',
-    contentLength: headers['content-length'] ? Number(headers['content-length']) : null,
-    contentRange: headers['content-range'] || null,
+    contentType: header('content-type') || 'video/mp4',
+    contentLength: contentLength ? Number(contentLength) : null,
+    contentRange: header('content-range'),
     stream: driveResponse.stream,
     source: 'google-drive',
   };

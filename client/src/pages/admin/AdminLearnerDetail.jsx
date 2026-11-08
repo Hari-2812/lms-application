@@ -57,8 +57,8 @@ import {
 const SUBMISSION_STATUS = {
   submitted: { label: 'Submitted', tone: 'blue' },
   under_review: { label: 'Under review', tone: 'blue' },
-  accepted: { label: 'Accepted', tone: 'green' },
-  needs_revision: { label: 'Needs revision', tone: 'amber' },
+  accepted: { label: 'Completed', tone: 'green' },
+  needs_revision: { label: 'Needs changes', tone: 'amber' },
 };
 
 const SOURCE_LABEL = { payment: 'Paid', free: 'Free course', manual: 'Granted by admin', bulk: 'Bulk', full: 'Full Access' };

@@ -13,8 +13,18 @@ const { notifyAdmins } = require('../services/notificationService');
  * Admin → Enquiries once the sheet is fixed.
  */
 
-/** Column order in the sheet. Changing it only affects rows written afterwards. */
-const SHEET_HEADERS = ['Submitted at', 'Name', 'Email', 'Phone', 'Program', 'City', 'Message', 'Source', 'Enquiry ID'];
+/**
+ * Column order in the sheet. Changing it only affects rows written afterwards,
+ * so new columns go on the end: a sheet that already has a header row keeps
+ * its existing columns lined up.
+ */
+const SHEET_HEADERS = [
+  'Submitted at', 'Name', 'Email', 'Phone', 'Program', 'Location', 'Profile summary', 'Source', 'Enquiry ID',
+  'Status', 'Designation', 'Alternate number',
+];
+
+/** What the homepage form enrols people for; used when the form sends none. */
+const DEFAULT_PROGRAM = 'Nationwide Gen AI Program';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE = /^\+?[\d\s()-]{7,20}$/;
@@ -62,6 +72,9 @@ const sheetRow = (enquiry) => [
   enquiry.message,
   enquiry.source,
   String(enquiry._id),
+  enquiry.careerStatus,
+  enquiry.designation,
+  enquiry.alternatePhone,
 ];
 
 /** Copies one enquiry to the sheet and records how it went. Never throws. */
@@ -93,16 +106,22 @@ function readForm(body = {}) {
     name: text('name', 80),
     email: text('email', 120).toLowerCase(),
     phone: text('phone', 20),
-    program: text('program', 120),
+    program: text('program', 120) || DEFAULT_PROGRAM,
     city: text('city', 80),
     message: text('message', 1000),
+    careerStatus: text('careerStatus', 60),
+    designation: text('designation', 100),
+    alternatePhone: text('alternatePhone', 20),
   };
+  const validPhone = (value) => PHONE.test(value) && value.replace(/\D/g, '').length >= 7;
 
   if (fields.name.length < 2) return { error: 'Enter your full name.' };
   if (!EMAIL.test(fields.email)) return { error: 'Enter a valid email address.' };
-  if (!PHONE.test(fields.phone) || fields.phone.replace(/\D/g, '').length < 7) {
-    return { error: 'Enter a valid phone number.' };
-  }
+  if (!validPhone(fields.phone)) return { error: 'Enter a valid phone number.' };
+  if (!Enquiry.CAREER_STATUSES.includes(fields.careerStatus)) return { error: 'Select your current status.' };
+  if (fields.city.length < 2) return { error: 'Enter your location.' };
+  if (!validPhone(fields.alternatePhone)) return { error: 'Enter a valid alternate number.' };
+  if (fields.message.length < 3) return { error: 'Add a brief profile summary.' };
   return { fields };
 }
 
@@ -150,7 +169,16 @@ async function listAll(req, res, next) {
     if (Enquiry.SHEET_STATUSES.includes(sheet)) filter.sheetStatus = sheet;
     if (search) {
       const pattern = new RegExp(escapeRegex(String(search).trim()), 'i');
-      filter.$or = [{ name: pattern }, { email: pattern }, { phone: pattern }, { program: pattern }, { city: pattern }];
+      filter.$or = [
+        { name: pattern },
+        { email: pattern },
+        { phone: pattern },
+        { alternatePhone: pattern },
+        { program: pattern },
+        { city: pattern },
+        { careerStatus: pattern },
+        { designation: pattern },
+      ];
     }
     const range = {};
     if (from && !Number.isNaN(new Date(from).getTime())) range.$gte = new Date(from);
@@ -224,4 +252,9 @@ async function testSheet(_req, res, next) {
   }
 }
 
-module.exports = { create, listAll, resync, resyncAll, testSheet, SHEET_HEADERS };
+/** GET /api/enquiries/options — public; the form's Status dropdown. */
+function options(_req, res) {
+  res.json({ careerStatuses: Enquiry.CAREER_STATUSES, program: DEFAULT_PROGRAM });
+}
+
+module.exports = { create, options, listAll, resync, resyncAll, testSheet, SHEET_HEADERS };

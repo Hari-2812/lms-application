@@ -27,7 +27,7 @@ import {
   uploadCourseImage,
 } from '../../api/client';
 import { isValidLink } from '../../utils/url.js';
-import { LOGO_SRC } from '../../components/common/Logo.jsx';
+import { LOGO_FULL_SRC } from '../../components/common/Logo.jsx';
 import { usePageMeta } from '../../components/layout/DashboardLayout.jsx';
 import Button from '../../components/common/Button.jsx';
 import Input from '../../components/common/Input.jsx';
@@ -79,6 +79,8 @@ export default function AdminSettings() {
   const [tab, setTabState] = useState(initialTab);
   const [settings, setSettings] = useState(null);
   const [emailConfigured, setEmailConfigured] = useState(false);
+  // { configured, provider: 'resend' | 'smtp', source: 'settings' | 'env', fromAddress, testSender }
+  const [emailStatus, setEmailStatus] = useState({ configured: false });
   const [serviceAccountEmail, setServiceAccountEmail] = useState(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -103,6 +105,7 @@ export default function AdminSettings() {
       .then((data) => {
         setSettings(data.settings);
         setEmailConfigured(data.emailConfigured);
+        setEmailStatus(data.emailStatus || { configured: data.emailConfigured });
         setServiceAccountEmail(data.serviceAccountEmail);
       })
       .catch((err) => flash.error(toErrorMessage(err)));
@@ -151,6 +154,7 @@ export default function AdminSettings() {
       const data = await updateAdminSettings(patch);
       setSettings(data.settings);
       setEmailConfigured(data.emailConfigured);
+      setEmailStatus(data.emailStatus || { configured: data.emailConfigured });
       setServiceAccountEmail(data.serviceAccountEmail);
       refreshBranding();
       flash.success('Settings saved.');
@@ -215,6 +219,8 @@ export default function AdminSettings() {
   };
 
   const { branding, loginPage, homepage, integrations, certificate, payments, email, notifications } = settings;
+  // No choice saved yet: Resend if a key is saved (or nothing is set up), else the SMTP server already filled in.
+  const emailProvider = email.provider || (email.hasResendApiKey || !email.smtpHost ? 'resend' : 'smtp');
   const sheetUrl = integrations.googleSheetId ? `https://docs.google.com/spreadsheets/d/${integrations.googleSheetId}/edit` : '';
   const loginPoints = String(loginPage.points || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
   const webhookUrl = `${API_ORIGIN || window.location.origin}/api/payments/webhook/razorpay`;
@@ -244,21 +250,23 @@ export default function AdminSettings() {
 
       {/* --- branding ------------------------------------------------------ */}
       {tab === 'branding' && (
-        <Panel icon={Palette} title="Platform name and branding" description="Shown in the sidebar, sign-in pages, emails and on certificates. The Analytics Avenue logo itself is fixed.">
+        <Panel icon={Palette} title="Platform name and branding" description="The name is used in the browser tab title, emails and on the payment page. The Analytics Avenue logo itself is fixed.">
           <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
             <div className="grid content-start gap-4 sm:grid-cols-2">
               <Input label="Platform name" value={branding.platformName} maxLength={60} onChange={field('branding', 'platformName')} />
-              <Input label="Tagline" value={branding.tagline} maxLength={60} onChange={field('branding', 'tagline')} hint="Shown under the name, e.g. EduTech." />
+              <Input label="Tagline" value={branding.tagline} maxLength={60} onChange={field('branding', 'tagline')} hint="Added after the name in the browser tab title and footer, e.g. EduTech." />
               <Input label="Support email" type="email" value={branding.supportEmail} onChange={field('branding', 'supportEmail')} />
             </div>
 
             <div className="rounded-xl bg-primary-800 p-5 text-center">
               <p className="text-[12px] text-primary-200">Preview</p>
-              <div className="mx-auto mt-4 grid h-16 w-16 place-items-center overflow-hidden rounded-xl bg-white">
-                <img src={LOGO_SRC} alt="" className="h-12 w-auto object-contain" />
+              <div className="mx-auto mt-4 inline-flex rounded-xl bg-white px-3 py-2">
+                <img src={LOGO_FULL_SRC} alt="" className="h-24 w-auto" />
               </div>
-              <p className="mt-3 text-base font-bold text-white">{branding.platformName || 'Platform name'}</p>
-              <p className="text-[12px] text-primary-200">{branding.tagline}</p>
+              <p className="mt-4 text-[11px] uppercase tracking-wide text-primary-200">Browser tab title</p>
+              <p className="mt-0.5 text-sm font-semibold text-white">
+                {[branding.platformName || 'Platform name', branding.tagline].filter(Boolean).join(' ')}
+              </p>
             </div>
           </div>
           <div className="mt-6">{saveButton(['branding'])}</div>
@@ -491,17 +499,25 @@ export default function AdminSettings() {
         <div className="space-y-6">
           <Panel
             icon={Mail}
-            title="Email (SMTP)"
+            title="Email"
             description="Used for password resets, and for notification copies when switched on."
             actions={emailConfigured ? <Pill tone="green">Email is set up</Pill> : <Pill tone="amber">Not set up</Pill>}
           >
-            {!emailConfigured && (
+            {emailStatus.configured ? (
+              <Alert tone={emailStatus.testSender ? 'warning' : 'success'} className="mb-4">
+                Sending with <strong>{emailStatus.provider === 'resend' ? 'Resend' : 'SMTP'}</strong>
+                {emailStatus.source === 'env' ? ' (key from server/.env)' : ''}
+                {emailStatus.fromAddress ? <> from <strong>{emailStatus.fromAddress}</strong></> : ''}.
+                {emailStatus.testSender &&
+                  ' This is Resend’s test sender: it only delivers to your own Resend account. Verify your domain in Resend and set "From email" below to an address on it.'}
+              </Alert>
+            ) : (
               <Alert tone="info" className="mb-4">
-                Until SMTP is set up, password reset links are printed in the server console instead of being emailed.
+                Until email is set up, password reset links are printed in the server console instead of being emailed.
               </Alert>
             )}
             <div className="divide-y divide-ink-100">
-              <Toggle id="email-enabled" label="Send email" checked={email.enabled} onChange={set('email', 'enabled')} description="Use the SMTP server below." />
+              <Toggle id="email-enabled" label="Send email" checked={email.enabled} onChange={set('email', 'enabled')} description="Use the provider chosen below." />
               <Toggle
                 id="email-copies"
                 label="Email a copy of notifications"
@@ -510,25 +526,69 @@ export default function AdminSettings() {
                 description="Learners and admins also receive notifications by email."
               />
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Input label="SMTP host" value={email.smtpHost} onChange={field('email', 'smtpHost')} placeholder="smtp.gmail.com" />
-              <Input label="Port" type="number" value={email.smtpPort} onChange={field('email', 'smtpPort')} />
-              <Input label="Username" value={email.smtpUser} onChange={field('email', 'smtpUser')} autoComplete="off" />
-              <Input
-                label="Password"
-                type="password"
-                value={email.smtpPass}
-                onChange={field('email', 'smtpPass')}
-                placeholder={email.hasSmtpPass ? '•••••••• saved — leave blank to keep' : ''}
-                autoComplete="new-password"
+
+            <div className="mt-4">
+              <p className="field-label">Send with</p>
+              <AdminTabs
+                tabs={[
+                  { value: 'resend', label: 'Resend (recommended)' },
+                  { value: 'smtp', label: 'SMTP server' },
+                ]}
+                value={emailProvider}
+                onChange={set('email', 'provider')}
               />
-              <Input label="From name" value={email.fromName} onChange={field('email', 'fromName')} />
-              <Input label="From email" type="email" value={email.fromEmail} onChange={field('email', 'fromEmail')} />
-              <label className="flex items-center gap-2 text-[13px] text-ink-700">
-                <input type="checkbox" className="h-4 w-4 rounded border-primary-200 text-primary-600" checked={email.smtpSecure} onChange={(e) => set('email', 'smtpSecure')(e.target.checked)} />
-                Use SSL/TLS (port 465)
-              </label>
             </div>
+
+            {emailProvider === 'resend' ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Resend API key"
+                    type="password"
+                    value={email.resendApiKey}
+                    onChange={field('email', 'resendApiKey')}
+                    placeholder={
+                      email.hasResendApiKey
+                        ? '•••••••• saved — leave blank to keep'
+                        : emailStatus.provider === 'resend' && emailStatus.source === 'env'
+                          ? 'Using RESEND_API_KEY from server/.env'
+                          : 're_…'
+                    }
+                    autoComplete="new-password"
+                    hint="resend.com → API Keys → Create (Sending access). You can put it in server/.env as RESEND_API_KEY instead."
+                  />
+                </div>
+                <Input label="From name" value={email.fromName} onChange={field('email', 'fromName')} />
+                <Input
+                  label="From email"
+                  type="email"
+                  value={email.fromEmail}
+                  onChange={field('email', 'fromEmail')}
+                  placeholder="no-reply@yourdomain.com"
+                  hint="Must be on a domain verified in Resend (Domains)."
+                />
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Input label="SMTP host" value={email.smtpHost} onChange={field('email', 'smtpHost')} placeholder="smtp.gmail.com" />
+                <Input label="Port" type="number" value={email.smtpPort} onChange={field('email', 'smtpPort')} />
+                <Input label="Username" value={email.smtpUser} onChange={field('email', 'smtpUser')} autoComplete="off" />
+                <Input
+                  label="Password"
+                  type="password"
+                  value={email.smtpPass}
+                  onChange={field('email', 'smtpPass')}
+                  placeholder={email.hasSmtpPass ? '•••••••• saved — leave blank to keep' : ''}
+                  autoComplete="new-password"
+                />
+                <Input label="From name" value={email.fromName} onChange={field('email', 'fromName')} />
+                <Input label="From email" type="email" value={email.fromEmail} onChange={field('email', 'fromEmail')} />
+                <label className="flex items-center gap-2 text-[13px] text-ink-700">
+                  <input type="checkbox" className="h-4 w-4 rounded border-primary-200 text-primary-600" checked={email.smtpSecure} onChange={(e) => set('email', 'smtpSecure')(e.target.checked)} />
+                  Use SSL/TLS (port 465)
+                </label>
+              </div>
+            )}
             <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-ink-100 pt-5">
               <Button variant="secondary" onClick={onTestEmail} loading={testing} disabled={!emailConfigured}>
                 <Send className="h-4 w-4" aria-hidden="true" />

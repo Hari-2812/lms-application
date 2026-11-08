@@ -149,7 +149,29 @@ async function main() {
     fail(err.message);
   }
 
+  // One sub-folder per course (e.g. SQL / PYTHON / POWER BI) is the layout
+  // drive:import expects, so report those instead of failing.
   if (files.length === 0) {
+    const subFolders = await driveService.listSubFolders(folder.id).catch(() => []);
+    const withVideos = [];
+    for (const sub of subFolders) {
+      const videos = await driveService.listFolderVideos(sub.id).catch(() => []);
+      if (videos.length) withVideos.push({ ...sub, videos });
+    }
+    if (withVideos.length) {
+      console.log(`  ✓ Connected. Videos are in ${withVideos.length} sub-folder(s) — one per course:\n`);
+      for (const sub of withVideos) {
+        console.log(`   ${sub.name}  (${sub.videos.length} video${sub.videos.length === 1 ? '' : 's'})  folder id=${sub.id}`);
+        sub.videos.forEach((file) =>
+          console.log(`      ${file.canDownload ? '-' : '✗'} ${file.name}${file.canDownload ? '' : '   ← downloading turned off: will not play'}`)
+        );
+      }
+      console.log(
+        '\n  Next: fill a course from its folder (dry run first, then add --apply):\n' +
+          '    npm run drive:import -- --course=<course id or slug> --folder=<folder id above>\n'
+      );
+      return;
+    }
     fail(
       `Folder "${folder.name}" is reachable but contains no video files.`,
       'Upload your lesson .mp4 files directly into that folder, then re-run.\n' +

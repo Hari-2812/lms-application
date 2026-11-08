@@ -29,6 +29,8 @@ async function adminPayload(settings) {
   return {
     settings: settingsService.forAdmin(settings),
     emailConfigured: await mailService.isConfigured(),
+    // Which provider is live and where its key came from — never the key itself.
+    emailStatus: await mailService.describe(),
     serviceAccountEmail: driveService.getConfigSummary().clientEmail || null,
   };
 }
@@ -90,13 +92,15 @@ async function updateAdmin(req, res, next) {
 async function sendTestEmail(req, res, next) {
   try {
     const { branding } = await settingsService.get();
+    const status = await mailService.describe();
+    const via = status.provider === 'resend' ? 'Resend' : 'SMTP';
     const result = await mailService.sendMail({
       to: req.user.email,
       subject: `${branding.platformName}: test email`,
-      text: 'Your SMTP settings work — this message was sent from the admin panel.',
+      text: `Your email settings work — this message was sent from the admin panel via ${via}.`,
     });
     if (!result.sent) return res.status(400).json({ error: `Not sent: ${result.error}` });
-    res.json({ success: true, message: `Test email sent to ${req.user.email}` });
+    res.json({ success: true, message: `Test email sent to ${req.user.email} via ${via}.` });
   } catch (err) {
     next(err);
   }

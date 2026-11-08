@@ -47,7 +47,7 @@ const RESOURCE_LABEL = { pdf: 'PDF', doc: 'Document', slides: 'Slides', link: 'L
 export default function CourseLearning() {
   const { courseId, lessonId } = useParams();
   const navigate = useNavigate();
-  const { student } = useAuth();
+  const { student, isAdmin } = useAuth();
 
   const [course, setCourse] = useState(null);
   const [lessons, setLessons] = useState([]);
@@ -297,6 +297,7 @@ export default function CourseLearning() {
                 watermark={{ name: student?.name, label: 'AnalyticsAvenue EduTech' }}
                 onProgress={handleProgress}
                 onEnded={() => next && goTo(next)}
+                showDetails={isAdmin}
               />
             </div>
           </div>

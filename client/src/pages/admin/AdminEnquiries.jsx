@@ -151,7 +151,7 @@ export default function AdminEnquiries() {
               <input
                 type="search"
                 className="admin-field w-full pl-9"
-                placeholder="Name, email, phone, program or city"
+                placeholder="Name, email, phone, status, designation or location"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
@@ -190,7 +190,7 @@ export default function AdminEnquiries() {
                   <th>Name</th>
                   <th>Contact</th>
                   <th>Program</th>
-                  <th>Message</th>
+                  <th>Profile summary</th>
                   <th>Google Sheet</th>
                 </tr>
               </thead>
@@ -202,10 +202,18 @@ export default function AdminEnquiries() {
                       <td className="whitespace-nowrap text-[13px]">{formatDate(enquiry.createdAt, true)}</td>
                       <td>
                         <p className="font-semibold text-ink-900">{enquiry.name}</p>
+                        {(enquiry.careerStatus || enquiry.designation) && (
+                          <p className="text-[12px] text-ink-600">{[enquiry.careerStatus, enquiry.designation].filter(Boolean).join(' · ')}</p>
+                        )}
                         {enquiry.city && <p className="text-[12px] text-ink-500">{enquiry.city}</p>}
                       </td>
                       <td>
                         <a href={`tel:${enquiry.phone}`} className="block text-[13px] text-ink-800 hover:text-primary-700">{enquiry.phone}</a>
+                        {enquiry.alternatePhone && (
+                          <a href={`tel:${enquiry.alternatePhone}`} className="block text-[12px] text-ink-600 hover:text-primary-700">
+                            Alt: {enquiry.alternatePhone}
+                          </a>
+                        )}
                         <a href={`mailto:${enquiry.email}`} className="block text-[12px] text-ink-500 hover:text-primary-700">{enquiry.email}</a>
                       </td>
                       <td className="text-[13px]">{enquiry.program || '—'}</td>

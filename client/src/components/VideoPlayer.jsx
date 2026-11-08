@@ -23,6 +23,45 @@ import { formatDuration } from '../utils/format.js';
  * Controls are custom (no `controls` attribute) so there is no browser
  * download button in the overflow menu.
  */
+/**
+ * A <video> element only reports "it failed", never why. When it does, ask
+ * the same URL for its first byte and read the server's JSON error, which
+ * names the actual cause (no access, Drive not shared, downloads disabled…).
+ * Learners get plain wording; staff (`showDetails`) also see the cause.
+ */
+async function explainFailure(src, showDetails) {
+  const contactSupport = 'Please try again later, or contact support if it keeps happening.';
+  let res;
+  const controller = new AbortController();
+  try {
+    res = await fetch(src, { headers: { Range: 'bytes=0-0' }, signal: controller.signal });
+  } catch {
+    return { title: 'Could not reach the server.', detail: 'Check your internet connection and reload the page.' };
+  }
+  if (res.ok) {
+    const type = res.headers.get('content-type') || 'unknown';
+    controller.abort();
+    return {
+      title: 'This video file cannot be played in your browser.',
+      detail: showDetails ? `The server sent "${type}". Upload the lesson as an MP4 (H.264) file.` : contactSupport,
+    };
+  }
+  let message = '';
+  try {
+    message = (await res.json())?.error || '';
+  } catch {
+    /* not JSON */
+  }
+  if (res.status === 401) return { title: 'Your session has expired.', detail: 'Sign in again to keep watching.' };
+  if (res.status === 403 && /access to this course/i.test(message)) {
+    return { title: message, detail: 'Enrol in the course, or contact support if you think this is a mistake.' };
+  }
+  return {
+    title: 'This video is not available right now.',
+    detail: showDetails && message ? `${message} (HTTP ${res.status})` : contactSupport,
+  };
+}
+
 export default function VideoPlayer({
   src,
   poster,
@@ -30,6 +69,7 @@ export default function VideoPlayer({
   watermark,
   onProgress,
   onEnded,
+  showDetails = false,
 }) {
   const videoRef = useRef(null);
   const shellRef = useRef(null);
@@ -211,11 +251,12 @@ export default function VideoPlayer({
           if (video?.duration) onProgress?.(video.duration, video.duration, true);
           onEnded?.();
         }}
-        onError={() =>
-          setError(
-            'Video could not be loaded. Check that the backend is running and the lesson has a valid Google Drive file id.'
-          )
-        }
+        onError={() => {
+          setError({ title: 'Video could not be loaded.', detail: '' });
+          explainFailure(src, showDetails).then((reason) => {
+            if (videoRef.current?.currentSrc && reason) setError(reason);
+          });
+        }}
       />
 
       {/* Watermark — deliberately visible, tied to the signed-in student. */}
@@ -247,8 +288,11 @@ export default function VideoPlayer({
       )}
 
       {error && (
-        <div className="absolute inset-0 grid place-items-center bg-ink-900 px-8 text-center">
-          <p className="max-w-md text-sm leading-relaxed text-ink-300">{error}</p>
+        <div role="alert" className="absolute inset-0 grid place-items-center bg-ink-900 px-8 text-center">
+          <div className="max-w-lg">
+            <p className="text-sm font-semibold leading-relaxed text-white">{error.title}</p>
+            {error.detail && <p className="mt-2 text-[13px] leading-relaxed text-ink-300">{error.detail}</p>}
+          </div>
         </div>
       )}
 

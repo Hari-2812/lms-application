@@ -175,6 +175,7 @@ router.post(
 router.delete('/courses/:courseId/reviews/mine', requireAuth, reviewController.deleteMine);
 
 // --- "Enroll Now" enquiry form (public; copied to the Google Sheet) ---
+router.get('/enquiries/options', enquiryController.options);
 router.post('/enquiries', optionalAuth, enquiryController.create);
 
 // --- admin resources ---

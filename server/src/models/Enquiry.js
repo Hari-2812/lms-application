@@ -10,14 +10,22 @@ const mongoose = require('mongoose');
  */
 const SHEET_STATUSES = ['pending', 'synced', 'failed', 'skipped'];
 
+/** "Status" on the form: where the visitor is in their career. */
+const CAREER_STATUSES = ['Student', 'Fresher / job seeker', 'Working professional', 'Career break', 'Business owner / freelancer'];
+
 const enquirySchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, lowercase: true },
     phone: { type: String, required: true, trim: true },
     program: { type: String, default: '', trim: true },
+    // "Location" on the form.
     city: { type: String, default: '', trim: true },
+    // "Brief profile summary" on the form.
     message: { type: String, default: '', trim: true },
+    careerStatus: { type: String, default: '', trim: true },
+    designation: { type: String, default: '', trim: true },
+    alternatePhone: { type: String, default: '', trim: true },
     source: { type: String, default: 'homepage' },
     // Set when the visitor was signed in.
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -41,5 +49,6 @@ enquirySchema.set('toJSON', {
 
 const Enquiry = mongoose.model('Enquiry', enquirySchema);
 Enquiry.SHEET_STATUSES = SHEET_STATUSES;
+Enquiry.CAREER_STATUSES = CAREER_STATUSES;
 
 module.exports = Enquiry;

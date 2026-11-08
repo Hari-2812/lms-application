@@ -265,6 +265,7 @@ export const deleteMyCourseReview = (courseId) =>
 
 // --- "Enroll Now" enquiry form ----------------------------------------------------
 export const submitEnquiry = (payload) => api.post('/enquiries', payload).then((r) => r.data);
+export const getEnquiryOptions = () => api.get('/enquiries/options').then((r) => r.data);
 
 // --- admin: resources -------------------------------------------------------
 export const getAllResources = () => api.get('/admin/resources').then((r) => r.data);

@@ -27,9 +27,8 @@ async function emailCopies(userIds, { title, message }) {
     if (!email.notificationCopies || !userIds.length) return;
 
     const users = await User.find({ _id: { $in: userIds }, status: { $ne: 'suspended' } }).select('email');
-    await Promise.allSettled(
-      users.map((u) => mailService.sendMail({ to: u.email, subject: title, text: message }))
-    );
+    // Batched with Resend, so a notice to every learner stays within its rate limit.
+    await mailService.sendMany(users.filter((u) => u.email).map((u) => ({ to: u.email, subject: title, text: message })));
   } catch (err) {
     console.error('[notify] email copies failed:', err.message);
   }

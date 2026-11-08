@@ -388,7 +388,7 @@ export default function AdminCourses() {
               type="url"
               required
               placeholder="https://drive.google.com/file/d/..."
-              hint="The file must be shared with your service account. The server extracts the ID and securely proxies the stream."
+              hint="In Drive, right-click the video → Share → Copy link. Don't copy the address bar while previewing a video — that is the folder's link."
               value={newLesson.driveLink}
               onChange={(e) => setNewLesson({ ...newLesson, driveLink: e.target.value })}
             />

@@ -33,7 +33,7 @@ const TASK_OPTIONS = [
   ['overdue', 'Has overdue tasks'],
   ['all_done', 'Submitted every task'],
   ['awaiting_review', 'Waiting for review'],
-  ['needs_revision', 'Needs revision'],
+  ['needs_revision', 'Needs changes'],
   ['none_submitted', 'Never submitted'],
 ];
 

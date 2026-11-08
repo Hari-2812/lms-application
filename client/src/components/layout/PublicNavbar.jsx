@@ -55,7 +55,7 @@ export default function PublicNavbar() {
           scrolled ? 'h-14' : 'h-16 lg:h-[4.5rem]'
         }`}
       >
-        <Logo />
+        <Logo size={scrolled ? 'md' : 'nav'} />
 
         <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
           {links.map((link) =>

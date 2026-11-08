@@ -91,7 +91,17 @@ const ACCENTS = ['sky', 'emerald', 'violet', 'amber', 'rose'];
 
 /** Turn a folder's video list into ordered lesson descriptors. */
 function toLessons(files) {
+  // A video with downloading turned off can never play, so it would only
+  // become a broken lesson. Say which ones were left out and why.
+  const blocked = files.filter((file) => file.canDownload === false);
+  for (const file of blocked) {
+    console.warn(
+      `   ! skipped "${file.name}": downloading is turned off in Google Drive, so it cannot be streamed.\n` +
+        '     Its owner can allow it: open the file → Share → ⚙ → tick "Viewers and commenters can see the option to download".'
+    );
+  }
   return files
+    .filter((file) => file.canDownload !== false)
     .map((file, index) => ({
       driveFileId: file.id,
       title: titleFromFilename(file.name),

@@ -7,7 +7,7 @@ import { X } from 'lucide-react';
  * Accessible dialog: closes on Escape / backdrop click, traps initial focus
  * and locks background scroll while open.
  */
-export default function Modal({ open, onClose, title, description, children, footer }) {
+export default function Modal({ open, onClose, title, description, children, footer, panelClassName = 'max-w-lg p-6', label }) {
   const panelRef = useRef(null);
 
   useEffect(() => {
@@ -45,12 +45,12 @@ export default function Modal({ open, onClose, title, description, children, foo
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
-            aria-label={title}
+            aria-label={label || title}
             initial={{ opacity: 0, scale: 0.97, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-pop focus:outline-none"
+            className={`relative max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-2xl bg-white shadow-pop focus:outline-none ${panelClassName}`}
           >
             <button
               type="button"

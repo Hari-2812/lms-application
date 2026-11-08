@@ -155,21 +155,20 @@ async function addLesson(req, res, next) {
 
     // Extract driveFileId from the link using the service
     // normaliseFolderId works for file IDs too
-    const driveFileId = driveService.normaliseFolderId(driveLink);
+    let driveFileId = driveService.normaliseFolderId(driveLink);
     if (!driveFileId) {
       return res.status(400).json({ error: 'Invalid Google Drive link' });
-    }
-
-    // Check if lesson already exists to prevent duplicates
-    const existingLesson = await Lesson.findOne({ courseId, driveFileId });
-    if (existingLesson) {
-      return res.status(400).json({ error: 'Lesson with this Drive video already exists in the course' });
     }
 
     // Fetch metadata from Google Drive
     let driveMetadata;
     try {
       driveMetadata = await driveService.getVideoMetadata(driveFileId);
+      // A Drive shortcut has no bytes of its own: use the video it points to.
+      if (driveMetadata.shortcutTargetId) {
+        driveFileId = driveMetadata.shortcutTargetId;
+        driveMetadata = await driveService.getVideoMetadata(driveFileId);
+      }
     } catch (err) {
       console.error('[admin] Failed to fetch drive metadata:', err.message);
       
@@ -180,6 +179,29 @@ async function addLesson(req, res, next) {
         : err.message || 'Could not fetch Drive metadata. Ensure the file is shared with the service account.';
         
       return res.status(400).json({ error: errorMessage });
+    }
+
+    // A folder's link (e.g. copied from the address bar while previewing a
+    // video in Drive) or a PDF/doc link would make a lesson that never plays.
+    if (driveMetadata.mimeType === 'application/vnd.google-apps.folder') {
+      return res.status(400).json({
+        error:
+          `That link is the Drive folder "${driveMetadata.name}", not a video. Open the folder, right-click ` +
+          'the video → Share → Copy link, and paste that. (The address bar shows the folder\'s link even ' +
+          'while a video is playing in Drive\'s preview.)',
+      });
+    }
+    if (!String(driveMetadata.mimeType).startsWith('video/')) {
+      return res.status(400).json({
+        error: `"${driveMetadata.name}" is not a video file. Paste the link of a video (right-click it in Drive → Share → Copy link).`,
+      });
+    }
+
+    const existingLesson = await Lesson.findOne({ courseId, driveFileId });
+    if (existingLesson) {
+      return res.status(400).json({
+        error: `"${driveMetadata.name}" is already in this course as the lesson "${existingLesson.title}".`,
+      });
     }
 
     // The file is visible but Drive will not hand over its bytes, so the lesson

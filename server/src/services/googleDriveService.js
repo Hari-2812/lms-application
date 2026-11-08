@@ -180,7 +180,7 @@ async function getVideoMetadata(fileId) {
   const { data } = await drive.files.get({
     fileId,
     fields:
-      'id, name, mimeType, size, webViewLink, parents, videoMediaMetadata(durationMillis), capabilities(canDownload)',
+      'id, name, mimeType, size, webViewLink, parents, videoMediaMetadata(durationMillis), capabilities(canDownload), shortcutDetails(targetId, targetMimeType)',
     supportsAllDrives: true,
   });
 
@@ -212,6 +212,8 @@ async function getVideoMetadata(fileId) {
     // False when the owner turned on "viewers can't download, print or copy":
     // the service account can see the file but Drive will not stream its bytes.
     canDownload: data.capabilities?.canDownload !== false,
+    // Set when this is a Drive shortcut; the caller should use the target instead.
+    shortcutTargetId: data.shortcutDetails?.targetId || null,
   };
 }
 
@@ -241,8 +243,11 @@ async function listFolderVideos(rawFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID
 
   do {
     const { data } = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false and mimeType contains 'video/'`,
-      fields: 'nextPageToken, files(id, name, mimeType, size, videoMediaMetadata(durationMillis))',
+      q:
+        `'${folderId}' in parents and trashed = false and ` +
+        "(mimeType contains 'video/' or mimeType = 'application/vnd.google-apps.shortcut')",
+      fields:
+        'nextPageToken, files(id, name, mimeType, size, videoMediaMetadata(durationMillis), capabilities(canDownload), shortcutDetails(targetId, targetMimeType))',
       orderBy: 'name_natural',
       pageSize: 100,
       pageToken,
@@ -250,7 +255,27 @@ async function listFolderVideos(rawFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID
       includeItemsFromAllDrives: true,
     });
 
-    files.push(...(data.files || []));
+    for (const file of data.files || []) {
+      if (!file.shortcutDetails) {
+        files.push(file);
+        continue;
+      }
+      // A shortcut to a video: stream the target, but keep the shortcut's name,
+      // which is the one numbered for this folder ("09_….MOV").
+      if (!String(file.shortcutDetails.targetMimeType || '').startsWith('video/')) continue;
+      try {
+        const { data: target } = await drive.files.get({
+          fileId: file.shortcutDetails.targetId,
+          fields: 'id, mimeType, size, videoMediaMetadata(durationMillis), capabilities(canDownload)',
+          supportsAllDrives: true,
+        });
+        files.push({ ...target, name: file.name });
+      } catch (err) {
+        console.warn(
+          `[drive] Skipped shortcut "${file.name}": the video it points to is not shared with the service account (${err.code || err.message}).`
+        );
+      }
+    }
     pageToken = data.nextPageToken;
   } while (pageToken);
 
@@ -262,6 +287,8 @@ async function listFolderVideos(rawFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID
     durationSeconds: file.videoMediaMetadata?.durationMillis
       ? Math.round(Number(file.videoMediaMetadata.durationMillis) / 1000)
       : null,
+    // False when the owner turned off downloads for viewers: it cannot be streamed.
+    canDownload: file.capabilities?.canDownload !== false,
   }));
 }
 
@@ -313,15 +340,69 @@ async function listSharedFolders() {
  * Returns { status, headers, stream } straight from the Drive response:
  *   206 + content-range when a Range was forwarded, 200 otherwise.
  */
+/**
+ * With responseType 'stream', a failed request's JSON body arrives as an
+ * unread stream, so `err.errors` is empty and the reason (cannotDownloadFile,
+ * downloadQuotaExceeded, notFound…) is lost. Read it and put it where the
+ * other Drive calls have it.
+ */
+async function readStreamedError(err) {
+  const body = err?.response?.data;
+  const applyJson = (text) => {
+    const parsed = JSON.parse(text);
+    if (err.response) err.response.data = parsed;
+    if (parsed?.error?.errors) err.errors = parsed.error.errors;
+    if (parsed?.error?.message) err.message = parsed.error.message;
+  };
+  // Newer gaxios reads the body itself and leaves the raw JSON as the message.
+  if (typeof err?.message === 'string' && err.message.trim().startsWith('{')) {
+    try {
+      applyJson(err.message);
+      return;
+    } catch {
+      /* not JSON after all */
+    }
+  }
+  if (!body || typeof body.on !== 'function') return;
+  const text = await new Promise((resolve) => {
+    let raw = '';
+    const done = () => resolve(raw);
+    body.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 16384) body.destroy();
+    });
+    body.on('end', done);
+    body.on('close', done);
+    body.on('error', done);
+    setTimeout(done, 5000);
+  });
+  try {
+    applyJson(text);
+  } catch {
+    if (text) err.response.data = text.slice(0, 500);
+  }
+}
+
+/** Drive's machine-readable reason for a failed call, e.g. "downloadQuotaExceeded". */
+function errorReason(err) {
+  return err?.errors?.[0]?.reason || err?.response?.data?.error?.errors?.[0]?.reason || '';
+}
+
 async function getVideoStream(fileId, range) {
   const drive = getDriveClient();
   const headers = {};
   if (range) headers.Range = range;
 
-  const response = await drive.files.get(
-    { fileId, alt: 'media', supportsAllDrives: true },
-    { responseType: 'stream', headers }
-  );
+  let response;
+  try {
+    response = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'stream', headers }
+    );
+  } catch (err) {
+    await readStreamedError(err);
+    throw err;
+  }
 
   return {
     status: response.status,
@@ -335,6 +416,7 @@ module.exports = {
   getCredentials,
   isConfigured,
   isDownloadBlocked,
+  errorReason,
   getConfigSummary,
   getVideoMetadata,
   normaliseFolderId,

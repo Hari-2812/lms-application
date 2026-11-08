@@ -38,7 +38,7 @@ export default function AuthLayout({ title, subtitle, points: fallbackPoints = [
         />
 
         <div className="relative">
-          <Logo tone="light" />
+          <Logo tone="light" variant="full" size="3xl" />
         </div>
 
         <motion.div
@@ -98,8 +98,8 @@ export default function AuthLayout({ title, subtitle, points: fallbackPoints = [
             transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
             className="w-full max-w-md"
           >
-            {/* The brand mark sits above the form on every screen size. */}
-            <Logo className="mb-8" />
+            {/* Phones only: on desktop the side panel already shows the logo. */}
+            <Logo className="mb-8 lg:hidden" size="xl" />
 
             <h1 className="text-[1.75rem] tracking-tight">{title}</h1>
             {subtitle && <p className="mt-2 text-sm text-ink-600">{subtitle}</p>}

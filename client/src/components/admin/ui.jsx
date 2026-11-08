@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
 
 /**
  * Building blocks shared by every admin page: a plain page title, white
@@ -78,6 +78,7 @@ const alertTones = {
   error: { box: 'border-red-200 bg-red-50 text-red-700', icon: AlertCircle },
   success: { box: 'border-emerald-200 bg-emerald-50 text-emerald-700', icon: CheckCircle2 },
   info: { box: 'border-primary-200 bg-primary-50 text-primary-800', icon: Info },
+  warning: { box: 'border-amber-200 bg-amber-50 text-amber-800', icon: AlertTriangle },
 };
 
 export function Alert({ tone = 'info', children, onClose, className = '' }) {

@@ -131,6 +131,12 @@ async function getLessonVideoStream(lessonId, rangeHeader) {
       err.message =
         `Drive file for lesson "${lesson.title}" was not found, or is not shared with the ` +
         'service account. Run `npm run drive:check`.';
+    } else if (status === 403 && driveService.errorReason(err) === 'fileNotDownloadable') {
+      // Folders and Google Docs/Sheets have no bytes to stream.
+      err.status = 400;
+      err.message =
+        `Lesson "${lesson.title}" points at a Drive folder or Google document, not a video file. ` +
+        "Delete the lesson and add it again with the video's own link (right-click the video → Share → Copy link).";
     } else if (status === 403 && driveService.isDownloadBlocked(err)) {
       // The owner turned on "Viewers and commenters can't download, print or
       // copy". The service account is a Viewer, so Drive refuses the bytes.
@@ -139,11 +145,22 @@ async function getLessonVideoStream(lessonId, rangeHeader) {
         `The Drive video for lesson "${lesson.title}" has downloading turned off, so it cannot be ` +
         'streamed. In Google Drive, open the file → Share → ⚙ Settings → tick "Viewers and ' +
         'commenters can see the option to download, print, and copy".';
+    } else if (status === 403 && /quota|rateLimit/i.test(driveService.errorReason(err))) {
+      // Drive caps how often one file can be downloaded per day; a popular
+      // lesson streamed by many learners can hit it. It clears by itself.
+      err.status = 503;
+      err.message =
+        `Google Drive's daily download limit has been reached for the video of lesson "${lesson.title}" ` +
+        '(too many plays today). It resets on its own within 24 hours. To avoid it, keep course videos ' +
+        'in a Shared drive owned by your organisation rather than a personal or "anyone with the link" folder.';
     } else if (status === 403) {
+      const reason = driveService.errorReason(err);
       err.status = 403;
       err.message =
-        'Google refused access to this file. Check that the Drive API is enabled and the ' +
-        'folder is shared with the service account. Run `npm run drive:check`.';
+        `Google refused access to the video for lesson "${lesson.title}"` +
+        (reason ? ` (Drive: ${reason})` : '') +
+        '. Check that the file is still shared with the service account and that its sharing has not ' +
+        'been restricted. Run `npm run drive:check`.';
     }
     throw err;
   }

@@ -41,9 +41,16 @@ import useCourses from '../hooks/useCourses.js';
 const STATUS_META = {
   submitted: { label: 'Submitted', tone: 'neutral', icon: Clock },
   under_review: { label: 'Under review', tone: 'primary', icon: Clock },
-  accepted: { label: 'Accepted', tone: 'success', icon: CheckCircle2 },
-  needs_revision: { label: 'Needs revision', tone: 'warning', icon: RotateCcw },
+  accepted: { label: 'Completed', tone: 'success', icon: CheckCircle2 },
+  needs_revision: { label: 'Needs changes', tone: 'warning', icon: RotateCcw },
 };
+
+const SUBMISSION_FILTERS = [
+  { value: '', label: 'All' },
+  { value: 'pending', label: 'Awaiting review', match: (s) => s === 'submitted' || s === 'under_review' },
+  { value: 'needs_revision', label: 'Needs changes', match: (s) => s === 'needs_revision' },
+  { value: 'accepted', label: 'Completed', match: (s) => s === 'accepted' },
+];
 
 const EMPTY = { category: '', title: '', description: '', driveLink: '', courseId: '', assignmentId: '' };
 
@@ -63,6 +70,8 @@ export default function TaskSubmission() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [taskCourse, setTaskCourse] = useState('');
+  const [submissionFilter, setSubmissionFilter] = useState('');
 
   usePageMeta('Task Submission', 'Submit your work for review.');
 
@@ -121,6 +130,34 @@ export default function TaskSubmission() {
     }
   };
 
+  /** Prefills the form for a task (or work being sent again) and scrolls to it. */
+  const startSubmission = (patch) => {
+    setForm((prev) => ({ ...prev, ...patch }));
+    setError('');
+    setSuccess('');
+    document.getElementById('submission-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const resubmit = (submission) =>
+    startSubmission({
+      assignmentId: assignments.some((a) => a.id === submission.assignmentId?._id) ? submission.assignmentId._id : '',
+      courseId: submission.courseId?._id || '',
+      category: submission.category,
+      title: submission.title || '',
+      description: '',
+      driveLink: '',
+    });
+
+  // Tasks can be narrowed to one course once they span more than one.
+  const taskCourses = [...new Map(assignments.filter((a) => a.courseId).map((a) => [a.courseId._id, a.courseId.title])).entries()];
+  const shownTasks = taskCourse
+    ? assignments.filter((a) => (taskCourse === 'all' ? !a.courseId : a.courseId?._id === taskCourse))
+    : assignments;
+
+  const activeFilter = SUBMISSION_FILTERS.find((f) => f.value === submissionFilter);
+  const shownSubmissions = activeFilter?.match ? submissions.filter((s) => activeFilter.match(s.status)) : submissions;
+  const countFor = (f) => (f.match ? submissions.filter((s) => f.match(s.status)).length : submissions.length);
+
   const handleWithdraw = async (submission) => {
     if (!window.confirm('Withdraw this submission? You can submit it again afterwards.')) return;
 
@@ -153,12 +190,28 @@ export default function TaskSubmission() {
       {/* --- tasks set by the coordinator ------------------------------- */}
       {assignments.length > 0 && (
         <section>
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-ink-900">
-            <CalendarClock className="h-5 w-5 text-primary-600" aria-hidden="true" />
-            Your tasks
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-ink-900">
+              <CalendarClock className="h-5 w-5 text-primary-600" aria-hidden="true" />
+              Your tasks
+            </h3>
+            {taskCourses.length > 1 && (
+              <select
+                aria-label="Show tasks for course"
+                className="field-input w-auto py-2"
+                value={taskCourse}
+                onChange={(e) => setTaskCourse(e.target.value)}
+              >
+                <option value="">All my courses</option>
+                {taskCourses.map(([id, title]) => (
+                  <option key={id} value={id}>{title}</option>
+                ))}
+                {assignments.some((a) => !a.courseId) && <option value="all">General tasks</option>}
+              </select>
+            )}
+          </div>
           <ul className="mt-4 grid gap-3 md:grid-cols-2">
-            {assignments.map((task) => {
+            {shownTasks.map((task) => {
               const overdue = task.dueDate && new Date(task.dueDate) < new Date();
               const mine = task.mySubmission;
               const meta = mine ? STATUS_META[mine.status] || STATUS_META.submitted : null;
@@ -181,16 +234,20 @@ export default function TaskSubmission() {
                     <span className="text-[12px] text-ink-500">
                       {mine && mine.score !== null && mine.score !== undefined ? `Score ${mine.score}/${task.maxScore}` : `Out of ${task.maxScore}`}
                     </span>
-                    <Button
-                      size="sm"
-                      variant={mine ? 'secondary' : 'primary'}
-                      onClick={() => {
-                        setForm((prev) => ({ ...prev, assignmentId: task.id, courseId: task.courseId?._id || '', title: prev.title || task.title }));
-                        document.getElementById('submission-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }}
-                    >
-                      {mine ? 'Submit again' : 'Submit work'}
-                    </Button>
+                    {mine?.status === 'accepted' ? (
+                      <span className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                        Completed
+                      </span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant={mine && mine.status !== 'needs_revision' ? 'secondary' : 'primary'}
+                        onClick={() => startSubmission({ assignmentId: task.id, courseId: task.courseId?._id || '', title: form.title || task.title })}
+                      >
+                        {!mine ? 'Submit work' : mine.status === 'needs_revision' ? 'Update & resubmit' : 'Submit again'}
+                      </Button>
+                    )}
                   </div>
                 </li>
               );
@@ -352,6 +409,28 @@ export default function TaskSubmission() {
             ? 'Loading…'
             : `${submissions.length} ${submissions.length === 1 ? 'submission' : 'submissions'}`}
         </p>
+        {submissions.length > 0 && (
+          <div role="tablist" aria-label="Filter your submissions" className="mt-3 inline-flex flex-wrap gap-1 rounded-xl bg-primary-50 p-1">
+            {SUBMISSION_FILTERS.map((f) => {
+              const active = f.value === submissionFilter;
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setSubmissionFilter(f.value)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${
+                    active ? 'bg-white text-primary-700 shadow-sm' : 'text-primary-900/60 hover:text-primary-800'
+                  }`}
+                >
+                  {f.label}
+                  <span className="text-[11px] tabular-nums opacity-70">{countFor(f)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {status === 'loading' ? (
           <div className="mt-4 space-y-3">
@@ -366,9 +445,13 @@ export default function TaskSubmission() {
             title="Nothing submitted yet"
             description="Use the form above to submit your first task. It will appear here with its review status."
           />
+        ) : shownSubmissions.length === 0 ? (
+          <p className="mt-4 rounded-card border border-dashed border-ink-200 p-6 text-center text-sm text-ink-500">
+            Nothing here — try another filter.
+          </p>
         ) : (
           <ul className="mt-4 space-y-3">
-            {submissions.map((submission) => {
+            {shownSubmissions.map((submission) => {
               const meta = STATUS_META[submission.status] || STATUS_META.submitted;
               const StatusIcon = meta.icon;
 
@@ -419,6 +502,12 @@ export default function TaskSubmission() {
                         Open link
                         <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
+                      {submission.status === 'needs_revision' && (
+                        <Button size="sm" onClick={() => resubmit(submission)}>
+                          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                          Resubmit
+                        </Button>
+                      )}
                       {submission.status === 'submitted' && (
                         <button
                           type="button"
@@ -433,10 +522,10 @@ export default function TaskSubmission() {
                   </div>
 
                   {(submission.feedback || (submission.score !== null && submission.score !== undefined)) && (
-                    <div className="mt-4 rounded-lg bg-surface-muted p-3.5">
+                    <div className={`mt-4 rounded-lg p-3.5 ${submission.status === 'needs_revision' ? 'border border-amber-200 bg-amber-50' : 'bg-surface-muted'}`}>
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-                          Reviewer feedback
+                          {submission.status === 'needs_revision' ? 'Changes requested' : 'Reviewer feedback'}
                         </p>
                         {submission.score !== null && submission.score !== undefined && (
                           <Badge tone="primary">

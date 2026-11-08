@@ -78,6 +78,10 @@ const DEFAULTS = {
   },
   email: {
     enabled: false,
+    // 'resend' | 'smtp'; '' picks Resend when an API key is available.
+    provider: '',
+    // Resend (https://resend.com). May instead be set as RESEND_API_KEY in server/.env.
+    resendApiKey: '',
     smtpHost: '',
     smtpPort: 587,
     smtpSecure: false,
@@ -128,7 +132,7 @@ const DEFAULTS = {
 /** Fields never sent to the browser in clear; the admin sees `hasX` flags instead. */
 const SECRET_FIELDS = {
   payments: ['razorpayKeySecret', 'razorpayWebhookSecret'],
-  email: ['smtpPass'],
+  email: ['smtpPass', 'resendApiKey'],
 };
 
 let cache = null;
@@ -239,6 +243,10 @@ async function update(patch, userId) {
   const next = merge(DEFAULTS, merge(current, clean));
   next.learning = clampLearning(next.learning);
   if (!['manual', 'razorpay'].includes(next.payments.gateway)) next.payments.gateway = 'manual';
+  if (!['', 'resend', 'smtp'].includes(next.email.provider)) next.email.provider = '';
+  if (clean.email?.resendApiKey && !/^re_[A-Za-z0-9_-]+$/.test(clean.email.resendApiKey)) {
+    throw badRequest('That does not look like a Resend API key — they start with "re_".');
+  }
 
   await Setting.findOneAndUpdate(
     { key: KEY },

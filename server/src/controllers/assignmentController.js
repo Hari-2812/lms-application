@@ -119,11 +119,21 @@ async function listAll(_req, res, next) {
     ]);
     const countBy = new Map(counts.map((c) => [String(c._id), c]));
 
+    // How many learners each task reaches: that course's enrolled learners
+    // (plus Full Access), or everyone for a task with no course.
+    const courseKeys = [...new Set(assignments.map((a) => String(a.courseId?._id || '')))];
+    const audienceBy = new Map(
+      await Promise.all(
+        courseKeys.map(async (key) => [key, (key ? await learnerIdsWithAccess(key) : await activeLearnerIds()).length])
+      )
+    );
+
     res.json(
       assignments.map((a) => ({
         ...a.toJSON(),
         submissionCount: countBy.get(String(a._id))?.total || 0,
         awaitingReview: countBy.get(String(a._id))?.awaiting || 0,
+        audienceCount: audienceBy.get(String(a.courseId?._id || '')) ?? 0,
       }))
     );
   } catch (err) {

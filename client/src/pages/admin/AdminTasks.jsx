@@ -10,6 +10,8 @@ import { PageHeader } from '../../components/admin/ui.jsx';
 export default function AdminTasks() {
   const [courses, setCourses] = useState([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Set by "View" on a task; a new object each time so repeat clicks re-apply.
+  const [focus, setFocus] = useState(null);
 
   usePageMeta('Tasks & reviews', 'Assignments and the submission review queue.');
 
@@ -22,10 +24,14 @@ export default function AdminTasks() {
       <PageHeader
         icon={ClipboardCheck}
         title="Tasks & reviews"
-        description="Create assignments with a due date, then review what learners submit. Feedback and scores reach the learner straight away."
+        description="Assign tasks to a course's enrolled learners, then review what they submit — mark it completed or ask for changes. Feedback and scores reach the learner straight away."
       />
-      <AssignmentManager courses={courses} onChanged={() => setRefreshKey((k) => k + 1)} />
-      <SubmissionReview refreshKey={refreshKey} />
+      <AssignmentManager
+        courses={courses}
+        onChanged={() => setRefreshKey((k) => k + 1)}
+        onViewSubmissions={(task) => setFocus({ assignmentId: task.id, courseId: task.courseId?._id || '' })}
+      />
+      <SubmissionReview courses={courses} refreshKey={refreshKey} focus={focus} />
     </div>
   );
 }

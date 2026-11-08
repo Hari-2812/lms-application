@@ -1,5 +1,7 @@
+const mongoose = require('mongoose');
 const Assignment = require('../models/Assignment');
 const Submission = require('../models/Submission');
+const User = require('../models/User');
 const activity = require('../services/activityService');
 const certificateService = require('../services/certificateService');
 const { notifyUser, notifyAdmins } = require('../services/notificationService');
@@ -142,22 +144,63 @@ async function listCategories(_req, res) {
 
 /* ---------------------------------------------------------------- admin */
 
-/** GET /api/admin/submissions?status=&category= */
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A query-string id, or undefined. Rejects objects such as ?courseId[$ne]=x. */
+const queryId = (value) =>
+  typeof value === 'string' && mongoose.isValidObjectId(value) && value.length === 24
+    ? new mongoose.Types.ObjectId(value)
+    : undefined;
+
+/**
+ * GET /api/admin/submissions
+ *   ?status=&category=&courseId=&assignmentId=&studentId=&search=&summary=1
+ *
+ * courseId / assignmentId accept "none" for work not tied to one. `search`
+ * matches the learner's name or email, or the submission title. With
+ * summary=1 the reply is { submissions, counts }, where counts are per status
+ * under every filter except status, so the tabs can show how many each holds.
+ */
 async function listAll(req, res, next) {
   try {
-    const filter = {};
-    if (req.query.status) filter.status = req.query.status;
-    if (req.query.category) filter.category = req.query.category;
-    if (req.query.assignmentId) filter.assignmentId = req.query.assignmentId;
+    const q = req.query;
+    const base = {};
 
-    const submissions = await Submission.find(filter)
+    if (typeof q.category === 'string' && Submission.CATEGORIES.includes(q.category)) base.category = q.category;
+    if (q.courseId === 'none') base.courseId = null;
+    else if (queryId(q.courseId)) base.courseId = queryId(q.courseId);
+    if (q.assignmentId === 'none') base.assignmentId = null;
+    else if (queryId(q.assignmentId)) base.assignmentId = queryId(q.assignmentId);
+    if (queryId(q.studentId)) base.studentId = queryId(q.studentId);
+
+    const search = typeof q.search === 'string' ? q.search.trim().slice(0, 100) : '';
+    if (search) {
+      const pattern = new RegExp(escapeRegex(search), 'i');
+      const students = await User.find({ $or: [{ name: pattern }, { email: pattern }] }).select('_id').limit(500);
+      base.$or = [{ studentId: { $in: students.map((s) => s._id) } }, { title: pattern }];
+    }
+
+    const filter = { ...base };
+    if (typeof q.status === 'string' && Submission.STATUSES.includes(q.status)) filter.status = q.status;
+
+    const listing = Submission.find(filter)
       .populate('studentId', 'name email')
       .populate('courseId', 'title')
       .populate('assignmentId', 'title maxScore dueDate')
       .sort({ createdAt: -1 })
-      .limit(300);
+      .limit(500);
 
-    res.json(submissions);
+    if (q.summary !== '1') return res.json(await listing);
+
+    const [submissions, grouped] = await Promise.all([
+      listing,
+      Submission.aggregate([{ $match: base }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
+    ]);
+    const counts = Object.fromEntries(Submission.STATUSES.map((s) => [s, 0]));
+    for (const row of grouped) counts[row._id] = row.count;
+    counts.all = Object.values(counts).reduce((a, b) => a + b, 0);
+
+    res.json({ submissions, counts });
   } catch (err) {
     next(err);
   }
@@ -205,8 +248,8 @@ async function review(req, res, next) {
     if (statusChanged || (scoreChanged && submission.status !== 'submitted')) {
       const wording = {
         under_review: 'is being reviewed',
-        accepted: 'was accepted',
-        needs_revision: 'needs another look',
+        accepted: 'is marked completed',
+        needs_revision: 'needs a few changes — please update it and submit again',
         submitted: 'was reopened',
       }[submission.status];
       const what = submission.assignmentId

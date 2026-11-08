@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, ClipboardList, Pencil, Plus, Send, Trash2, X } from 'lucide-react';
+import { CalendarClock, ClipboardList, Eye, Pencil, Plus, Send, Trash2, Users, X } from 'lucide-react';
 import {
   createAssignment,
   deleteAssignment,
@@ -13,8 +13,10 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { EmptyRow, LoadingRow, Panel, Pill, formatDate, useFlash } from './ui.jsx';
 
 /**
- * Admin CRUD for assignments — tasks with a due date. Publishing one tells
- * the learners it is for (that course's learners, or everyone).
+ * Admin CRUD for assignments — tasks with a due date, set per course.
+ * A task for a course is only shown to (and announced to) the learners
+ * enrolled in that course, plus Full Access learners; "All learners" reaches
+ * everyone. Publishing one notifies its learners.
  */
 
 const EMPTY = { title: '', description: '', courseId: '', dueDate: '', maxScore: 100, published: true };
@@ -27,7 +29,7 @@ function toLocalInput(value) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
-export default function AssignmentManager({ courses = [], onChanged }) {
+export default function AssignmentManager({ courses = [], onChanged, onViewSubmissions }) {
   const { isSuperAdmin } = useAuth();
   const flash = useFlash();
   const [assignments, setAssignments] = useState([]);
@@ -36,6 +38,12 @@ export default function AssignmentManager({ courses = [], onChanged }) {
   const [editingId, setEditingId] = useState(null);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [courseFilter, setCourseFilter] = useState('');
+
+  const shown = assignments.filter((a) =>
+    !courseFilter ? true : courseFilter === 'all' ? !a.courseId : a.courseId?._id === courseFilter
+  );
+  const taskCountFor = (courseId) => assignments.filter((a) => a.courseId?._id === courseId).length;
 
   const load = () =>
     getAdminAssignments()
@@ -138,13 +146,18 @@ export default function AssignmentManager({ courses = [], onChanged }) {
         <form onSubmit={onSubmit} className="grid gap-4 border-b border-ink-100 bg-ink-50/50 px-5 py-5 sm:px-6 lg:grid-cols-2">
           <Input label="Task title" required value={form.title} onChange={set('title')} maxLength={160} placeholder="e.g. Week 3 — Build a sales dashboard" />
           <div>
-            <label className="field-label" htmlFor="assignment-course">For learners in</label>
+            <label className="field-label" htmlFor="assignment-course">Assign to learners enrolled in</label>
             <select id="assignment-course" className="field-input" value={form.courseId} onChange={set('courseId')}>
-              <option value="">All learners</option>
+              <option value="">All learners (every course)</option>
               {courses.map((c) => (
                 <option key={c._id} value={c._id}>{c.title}</option>
               ))}
             </select>
+            <p className="mt-1.5 text-xs text-ink-500">
+              {form.courseId
+                ? 'Only learners enrolled in this course (and Full Access learners) will see this task and be notified.'
+                : 'Every learner will see this task, whatever course they are in.'}
+            </p>
           </div>
           <Input label="Due date" type="datetime-local" value={form.dueDate} onChange={set('dueDate')} hint="Shown to learners and in their notification." />
           <Input label="Maximum score" type="number" min={1} max={1000} value={form.maxScore} onChange={set('maxScore')} />
@@ -176,10 +189,25 @@ export default function AssignmentManager({ courses = [], onChanged }) {
         </form>
       )}
 
+      {!loading && assignments.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-5 py-3 sm:px-6">
+          <label htmlFor="assignment-filter" className="text-[12px] font-medium text-ink-600">Show tasks for</label>
+          <select id="assignment-filter" className="admin-field w-auto min-w-[14rem]" value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)}>
+            <option value="">All courses ({assignments.length})</option>
+            {courses.map((c) => (
+              <option key={c._id} value={c._id}>{c.title} ({taskCountFor(c._id)})</option>
+            ))}
+            <option value="all">All-learner tasks ({assignments.filter((a) => !a.courseId).length})</option>
+          </select>
+        </div>
+      )}
+
       {loading ? (
         <LoadingRow label="Loading tasks…" />
       ) : assignments.length === 0 ? (
         <EmptyRow icon={ClipboardList} title="No tasks yet" description="Create one to give learners work with a due date." />
+      ) : shown.length === 0 ? (
+        <EmptyRow icon={ClipboardList} title="No tasks for this course yet" description={isSuperAdmin ? 'Use "New task" and pick the course.' : undefined} />
       ) : (
         <div className="overflow-x-auto">
           <table className="admin-table min-w-[48rem]">
@@ -194,7 +222,7 @@ export default function AssignmentManager({ courses = [], onChanged }) {
               </tr>
             </thead>
             <tbody>
-              {assignments.map((a) => {
+              {shown.map((a) => {
                 const overdue = a.dueDate && new Date(a.dueDate) < new Date();
                 return (
                   <tr key={a.id}>
@@ -202,7 +230,15 @@ export default function AssignmentManager({ courses = [], onChanged }) {
                       <p className="font-medium text-ink-900">{a.title}</p>
                       <p className="text-[11.5px] text-ink-400">Max score {a.maxScore}</p>
                     </td>
-                    <td className="text-[13px]">{a.courseId?.title || 'All learners'}</td>
+                    <td className="text-[13px]">
+                      <p>{a.courseId?.title || 'All learners'}</p>
+                      {typeof a.audienceCount === 'number' && (
+                        <p className="inline-flex items-center gap-1 text-[11.5px] text-ink-400">
+                          <Users className="h-3 w-3" aria-hidden="true" />
+                          {a.audienceCount} learner{a.audienceCount === 1 ? '' : 's'}
+                        </p>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap text-[13px]">
                       {a.dueDate ? (
                         <span className={overdue ? 'font-semibold text-red-600' : ''}>{formatDate(a.dueDate, true)}</span>
@@ -211,8 +247,20 @@ export default function AssignmentManager({ courses = [], onChanged }) {
                       )}
                     </td>
                     <td className="tabular-nums">
-                      {a.submissionCount}
-                      {a.awaitingReview > 0 && <Pill tone="amber" className="ml-2">{a.awaitingReview} to review</Pill>}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {a.submissionCount}
+                        {a.awaitingReview > 0 && <Pill tone="amber">{a.awaitingReview} to review</Pill>}
+                        {a.submissionCount > 0 && onViewSubmissions && (
+                          <button
+                            type="button"
+                            onClick={() => onViewSubmissions(a)}
+                            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-semibold text-primary-700 hover:bg-primary-50"
+                          >
+                            <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                            View
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td>{a.published ? <Pill tone="green">Published</Pill> : <Pill tone="gray">Draft</Pill>}</td>
                     {isSuperAdmin && (

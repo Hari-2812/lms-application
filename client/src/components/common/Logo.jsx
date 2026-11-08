@@ -1,47 +1,48 @@
 import { Link } from 'react-router-dom';
-import { useBranding } from '../../context/BrandingContext.jsx';
-
-/** The Analytics Avenue mark. Fixed: it is not editable from the admin panel. */
-export const LOGO_SRC = '/logos/logo-new.png';
 
 /**
- * Brand mark. `tone="light"` is for dark backgrounds (footer, CTA band,
- * the admin sidebar). The image is always the Analytics Avenue logo; the
- * name and tagline beside it come from Settings → Branding.
- * `compact` drops the name on small screens (tight bars like the player's).
+ * The Analytics Avenue logo. Fixed: not editable from the admin panel.
+ * All three files are cut from the same artwork (public/logos):
+ *   full     icon + name + "Building Smarter Teams with AI & L&D"
+ *   compact  icon + name, for bars where the tagline would be too small to read
+ *   mark     the icon alone
  */
-export default function Logo({ to = '/', tone = 'dark', className = '', compact = false }) {
-  const { branding } = useBranding();
+export const LOGO_FULL_SRC = '/logos/analytics-avenue-full.png';
+export const LOGO_COMPACT_SRC = '/logos/analytics-avenue-compact.png';
+export const LOGO_SRC = '/logos/analytics-avenue-mark.png';
+export const LOGO_NAME = 'Analytics Avenue';
+
+const SIZES = {
+  sm: 'h-8',
+  md: 'h-12',
+  lg: 'h-14',
+  xl: 'h-16',
+  '2xl': 'h-24',
+  '3xl': 'h-28',
+  // Smaller on phones, where it shares the bar with buttons.
+  nav: 'h-12 lg:h-14',
+};
+
+/**
+ * Brand logo. `variant="full"` adds the tagline (footer, sign-in panel);
+ * the default compact one suits 64px bars. The artwork is dark on a
+ * transparent background, so on dark backgrounds (`tone="light"`) it sits on
+ * a white tile. `compact` shows only the icon below md, for tight bars like
+ * the course player's. `size` overrides the default height.
+ */
+export default function Logo({ to = '/', tone = 'dark', variant = 'compact', className = '', compact = false, size }) {
   const light = tone === 'light';
+  const height = SIZES[size || (compact ? 'sm' : light ? 'md' : 'lg')];
+  const src = variant === 'full' ? LOGO_FULL_SRC : LOGO_COMPACT_SRC;
 
   return (
     <Link
       to={to}
-      className={`inline-flex min-w-0 items-center gap-2.5 rounded-lg ${className}`}
-      aria-label={`${branding.platformName} ${branding.tagline} — home`.trim()}
+      aria-label={`${LOGO_NAME} — home`}
+      className={`inline-flex shrink-0 items-center rounded-lg ${light ? `bg-white shadow-sm ${variant === 'full' ? 'px-4 py-3' : 'px-2.5 py-1'}` : ''} ${className}`}
     >
-      {/* The mark has dark outlines, so on dark backgrounds it sits on a white tile. */}
-      <span
-        className={`grid shrink-0 place-items-center overflow-hidden ${
-          light ? 'h-10 w-10 rounded-lg bg-white' : 'h-10 w-7'
-        }`}
-      >
-        <img
-          src={LOGO_SRC}
-          alt=""
-          className={`${light ? 'h-8' : 'h-10'} w-auto max-w-none object-contain`}
-        />
-      </span>
-      <span className={`min-w-0 leading-tight ${compact ? 'hidden md:block' : ''}`}>
-        <span className={`block truncate text-sm font-bold ${light ? 'text-white' : 'text-ink-900'}`}>
-          {branding.platformName}
-        </span>
-        {branding.tagline && (
-          <span className={`block text-[11px] ${light ? 'text-primary-200' : 'text-ink-500'}`}>
-            {branding.tagline}
-          </span>
-        )}
-      </span>
+      {compact && <img src={LOGO_SRC} alt="" className={`${height} w-auto md:hidden`} />}
+      <img src={src} alt="" className={`${height} w-auto max-w-none ${compact ? 'hidden md:block' : ''}`} />
     </Link>
   );
 }

@@ -54,7 +54,7 @@ export default function PublicFooter() {
     <footer id="contact" className="scroll-mt-20 border-t border-ink-800 bg-ink-900 text-ink-300">
       <div className="container grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-5 lg:gap-8 lg:py-16">
         <div className="lg:col-span-2">
-          <Logo tone="light" />
+          <Logo tone="light" variant="full" size="2xl" />
           <p className="mt-4 max-w-sm text-sm leading-relaxed text-ink-400">
             A learning platform built around structured lessons, secure video delivery and progress
             that is remembered — so you always know exactly where to pick back up.

@@ -38,8 +38,15 @@ function writeStoredSession(session) {
   }
 }
 
-/** True when the auth route does not exist on this backend yet. */
-const isMissingRoute = (err) => !err?.response || err.response.status === 404;
+/**
+ * True when the auth route does not exist on this backend yet.
+ *
+ * Only a real 404 counts. A request that never got an answer (offline, DNS
+ * failure, the server restarting) used to count too, which "signed in" a
+ * token-less demo student whenever the API was unreachable — every page then
+ * failed. Now that surfaces as a connection error on the form instead.
+ */
+const isMissingRoute = (err) => err?.response?.status === 404;
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(() => readStoredSession());

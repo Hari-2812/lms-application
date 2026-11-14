@@ -9,6 +9,7 @@ import {
   FolderOpen,
   Link as LinkIcon,
   ListVideo,
+  Lock,
   NotebookPen,
   Presentation,
   X,
@@ -44,6 +45,13 @@ const notesKey = (lessonId) => `lms.notes.${lessonId}`;
 const RESOURCE_ICON = { pdf: FileText, doc: FileText, slides: Presentation, link: LinkIcon };
 const RESOURCE_LABEL = { pdf: 'PDF', doc: 'Document', slides: 'Slides', link: 'Link' };
 
+/** Share of the video covered by the played spans, 0–100. */
+function coveragePercent(watched, duration) {
+  if (!duration || !Array.isArray(watched)) return 0;
+  const seconds = watched.reduce((sum, [start, end]) => sum + Math.max(0, end - start), 0);
+  return Math.min(100, Math.floor((seconds / duration) * 100));
+}
+
 export default function CourseLearning() {
   const { courseId, lessonId } = useParams();
   const navigate = useNavigate();
@@ -59,13 +67,18 @@ export default function CourseLearning() {
   const [resources, setResources] = useState([]);
   const [resourcesError, setResourcesError] = useState('');
   const [tab, setTab] = useState('resources');
+  // How much of this video has been played in this visit — shown live,
+  // between the periodic saves that bring back the server's figure.
+  const [livePercent, setLivePercent] = useState(0);
 
   const lastSavedAt = useRef(0);
+  const lastSave = useRef(Promise.resolve(null));
   const tabsRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');
+    setLivePercent(0);
     lastSavedAt.current = 0;
 
     Promise.all([getCourse(courseId), getCourseLessons(courseId), getProgress(lessonId)])
@@ -129,19 +142,36 @@ export default function CourseLearning() {
     }
   };
 
+  /** Re-reads the lesson list — after a completion, so the next lesson unlocks. */
+  const refreshLessons = useCallback(
+    () =>
+      getCourseLessons(courseId)
+        .then((fresh) => {
+          setLessons(fresh);
+          return fresh;
+        })
+        .catch(() => null),
+    [courseId]
+  );
+
   /**
    * Throttled progress save: every 8s while playing, plus immediately on
-   * pause and on end. Unchanged in behaviour from the original player.
+   * pause, on end and when leaving the lesson. `watched` is the spans of the
+   * video actually played; the server turns them into the lesson's percent.
    */
   const handleProgress = useCallback(
-    (position, duration, force = false) => {
-      if (!duration) return;
+    (position, duration, force = false, watched = []) => {
+      if (!duration || !Number.isFinite(duration)) return;
+
+      // Only re-render when the whole-number percentage moves.
+      const sessionPercent = coveragePercent(watched, duration);
+      setLivePercent((prev) => (sessionPercent > prev ? sessionPercent : prev));
 
       const now = Date.now();
       if (!force && now - lastSavedAt.current < SAVE_INTERVAL_MS) return;
       lastSavedAt.current = now;
 
-      saveProgress({ lessonId, position, duration })
+      lastSave.current = saveProgress({ lessonId, position, duration, watched })
         .then((saved) => {
           setLessons((prev) =>
             prev.map((l) =>
@@ -151,6 +181,7 @@ export default function CourseLearning() {
                     progress: {
                       position: saved.position,
                       percent: saved.percent,
+                      watchedSeconds: saved.watchedSeconds,
                       completed: saved.completed,
                       updatedAt: saved.updatedAt,
                     },
@@ -158,13 +189,30 @@ export default function CourseLearning() {
                 : l
             )
           );
+          // Finishing this lesson unlocks the next — fetch the new lock states.
+          if (saved.justCompleted) refreshLessons();
+          return saved;
         })
         .catch(() => {
           /* progress saving is best-effort — never interrupt playback */
+          return null;
         });
     },
-    [lessonId]
+    [lessonId, refreshLessons]
   );
+
+  /**
+   * At the end of the video, wait for the final save and move on — but only
+   * to a lesson that is unlocked. Reaching the end by skipping ahead leaves
+   * the lesson incomplete, so the learner stays put.
+   */
+  const handleEnded = async () => {
+    await lastSave.current;
+    const fresh = (await refreshLessons()) || lessons;
+    const at = fresh.findIndex((l) => l._id === lessonId);
+    const upcoming = at >= 0 ? fresh[at + 1] : null;
+    if (upcoming && !upcoming.locked) navigate(`/learn/${courseId}/${upcoming._id}`);
+  };
 
   const completedCount = useMemo(
     () => lessons.filter((l) => l.progress?.completed).length,
@@ -201,6 +249,15 @@ export default function CourseLearning() {
   const next = index < lessons.length - 1 ? lessons[index + 1] : null;
   const isCompleted = Boolean(lesson.progress?.completed);
   const coursePercent = lessons.length ? Math.round((completedCount / lessons.length) * 100) : 0;
+  // This video's progress: the saved figure, or what has been played since
+  // the last save if that is further along.
+  const lessonPercent = isCompleted ? 100 : Math.max(lesson.progress?.percent || 0, livePercent);
+  // The lesson the learner is up to — where a locked lesson sends them.
+  const currentLesson = lessons.find((l) => !l.locked && !l.progress?.completed) || lessons.find((l) => !l.locked);
+  // The curriculum shows the live percentage for the video that is playing.
+  const listedLessons = lessons.map((l) =>
+    l._id === lessonId && !isCompleted ? { ...l, progress: { ...l.progress, percent: lessonPercent } } : l
+  );
 
   const goTo = (target) => navigate(`/learn/${courseId}/${target._id}`);
 
@@ -240,9 +297,10 @@ export default function CourseLearning() {
       {/* The list re-uses the shared Curriculum in its dark theme. */}
       <div className="scrollbar-slim flex-1 overflow-y-auto">
         <Curriculum
-          lessons={lessons}
+          lessons={listedLessons}
           courseId={courseId}
           activeLessonId={lessonId}
+          isLocked={(l) => Boolean(l.locked)}
           theme="dark"
         />
       </div>
@@ -290,15 +348,37 @@ export default function CourseLearning() {
         <div className="min-w-0 flex-1">
           <div className="bg-black">
             <div className="mx-auto max-w-5xl">
-              <VideoPlayer
-                key={lesson._id}
-                src={streamUrl(lesson._id)}
-                startAt={resumeAt}
-                watermark={{ name: student?.name, label: 'AnalyticsAvenue EduTech' }}
-                onProgress={handleProgress}
-                onEnded={() => next && goTo(next)}
-                showDetails={isAdmin}
-              />
+              {lesson.locked ? (
+                // The API refuses this lesson's stream too; this explains why.
+                <div className="grid aspect-video w-full place-items-center bg-ink-900 px-6 text-center">
+                  <div className="max-w-md">
+                    <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-ink-800">
+                      <Lock className="h-6 w-6 text-ink-300" aria-hidden="true" />
+                    </span>
+                    <p className="mt-4 text-base font-semibold text-white">This lesson is locked</p>
+                    <p className="mt-2 text-sm leading-relaxed text-ink-300">
+                      Lessons unlock one at a time. Finish
+                      {previous ? <> &ldquo;{previous.title}&rdquo;</> : ' the previous lesson'} to open this one.
+                    </p>
+                    {currentLesson && currentLesson._id !== lesson._id && (
+                      <Button className="mt-5" onClick={() => goTo(currentLesson)}>
+                        Go to lesson {currentLesson.order}
+                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <VideoPlayer
+                  key={lesson._id}
+                  src={streamUrl(lesson._id)}
+                  startAt={resumeAt}
+                  watermark={{ name: student?.name, label: 'AnalyticsAvenue EduTech' }}
+                  onProgress={handleProgress}
+                  onEnded={handleEnded}
+                  showDetails={isAdmin}
+                />
+              )}
             </div>
           </div>
 
@@ -328,11 +408,30 @@ export default function CourseLearning() {
                   )}
                 </div>
 
+                {!lesson.locked && (
+                  <div className="mt-5">
+                    <div className="mb-1.5 flex items-center justify-between text-xs">
+                      <span className="font-medium text-ink-600">Video progress</span>
+                      <span className="font-semibold tabular-nums text-ink-900">{lessonPercent}% watched</span>
+                    </div>
+                    <ProgressBar
+                      value={lessonPercent}
+                      tone={isCompleted ? 'success' : 'primary'}
+                      label={`${lesson.title} watched`}
+                    />
+                    {!isCompleted && next?.locked && (
+                      <p className="mt-2 text-xs text-ink-500">
+                        Finish watching this video to unlock the next lesson — parts you skip do not count.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div className="mt-6 flex items-center justify-between gap-3 border-t border-ink-100 pt-5">
                   <Button
                     variant="secondary"
-                    onClick={() => previous && goTo(previous)}
-                    disabled={!previous}
+                    onClick={() => previous && !previous.locked && goTo(previous)}
+                    disabled={!previous || previous.locked}
                   >
                     <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                     <span className="hidden sm:inline">Previous</span>
@@ -346,7 +445,12 @@ export default function CourseLearning() {
                     </span>
                   </Button>
 
-                  <Button onClick={() => next && goTo(next)} disabled={!next}>
+                  <Button
+                    onClick={() => next && !next.locked && goTo(next)}
+                    disabled={!next || next.locked}
+                    title={next?.locked ? 'Complete this lesson to unlock the next one' : undefined}
+                  >
+                    {next?.locked && <Lock className="h-4 w-4" aria-hidden="true" />}
                     <span className="hidden sm:inline">Next lesson</span>
                     <span className="sm:hidden">Next</span>
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />

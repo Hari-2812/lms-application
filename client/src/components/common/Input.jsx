@@ -47,10 +47,16 @@ const Input = forwardRef(function Input(
           <button
             type="button"
             onClick={() => setRevealed((v) => !v)}
+            // Keep focus (and the caret) in the field while toggling.
+            onMouseDown={(event) => event.preventDefault()}
             aria-label={revealed ? 'Hide password' : 'Show password'}
+            aria-pressed={revealed}
+            title={revealed ? 'Hide password' : 'Show password'}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-2 text-ink-400 transition hover:text-ink-700"
           >
-            {revealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {/* The icon shows the current state: an open eye while the
+                password is visible, a closed eye while it is masked. */}
+            {revealed ? <Eye className="h-4 w-4" aria-hidden="true" /> : <EyeOff className="h-4 w-4" aria-hidden="true" />}
           </button>
         )}
       </div>

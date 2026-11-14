@@ -470,6 +470,15 @@ export default function Checkout() {
                   : 'Your enrolment is recorded now and the course unlocks as soon as the payment is confirmed.'}
             </p>
 
+            {/* Razorpay test keys only simulate payments — say so, rather than
+                let a learner's UPI app reject the QR code with no explanation. */}
+            {!isFree && method === 'razorpay' && payments.razorpayKeyId?.startsWith('rzp_test_') && (
+              <p role="note" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                Online payment is in test mode, so no real money can be taken yet — a UPI app will not accept this
+                checkout&apos;s QR code. Please try again later or contact support.
+              </p>
+            )}
+
             <div className="mt-4 flex items-start gap-2 border-t border-ink-100 pt-4 text-xs leading-relaxed text-ink-500">
               <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
               Lessons stream from private storage through our own API — no shareable video link

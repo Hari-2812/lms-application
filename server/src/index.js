@@ -9,6 +9,7 @@ const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const driveService = require('./services/googleDriveService');
 const { initSocket } = require('./services/socketService');
 const { UPLOAD_ROOT } = require('./middleware/upload');
+const { serveImage } = require('./controllers/uploadController');
 const routes = require('./routes');
 
 const PORT = process.env.PORT || 5000;
@@ -68,11 +69,28 @@ app.use(
   })
 );
 
+// Anything not on disk (every upload since images moved to MongoDB, and all
+// of them on Render, whose disk is wiped on each restart) is served from the
+// database. express.static above falls through to here on a miss.
+app.get('/uploads/thumbnails/:filename', serveImage);
+
 app.use('/api', routes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 const httpServer = http.createServer(app);
+
+/**
+ * Render (like most hosts) puts a proxy in front of the app that keeps idle
+ * connections open for longer than Node's 5-second default. When Node closes
+ * a connection the proxy is about to reuse, that request fails with a 502 or
+ * a reset — intermittent "the API did not respond" errors in the browser.
+ * Keeping our side open longer than the proxy's avoids the race; headersTimeout
+ * must stay above keepAliveTimeout.
+ */
+httpServer.keepAliveTimeout = 120 * 1000;
+httpServer.headersTimeout = 125 * 1000;
+
 initSocket(httpServer, isOriginAllowed);
 
 async function start() {

@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const User = require('../models/User');
+const { rejectionFor } = require('../middleware/authMiddleware');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret-key-change-in-prod';
 
@@ -18,20 +19,43 @@ function initSocket(httpServer, isOriginAllowed) {
     },
   });
 
+  /**
+   * Handshake auth. The error's `data.code` tells the client what to do:
+   *   AUTH_FAILED   the session is not valid — do not retry
+   *   SERVER_ERROR  we could not check it right now (database busy) — retry
+   * Socket.IO never retries a refused handshake by itself, so treating a
+   * database hiccup as a bad token used to leave real-time notifications off
+   * until the page was reloaded.
+   */
   io.use(async (socket, next) => {
-    try {
-      const token = socket.handshake.auth?.token;
-      if (!token) return next(new Error('No token provided'));
+    const refuse = (message, code) => {
+      const err = new Error(message);
+      err.data = { code };
+      next(err);
+    };
 
-      const decoded = jwt.verify(token, JWT_SECRET);
+    const token = socket.handshake.auth?.token;
+    if (!token) return refuse('No token provided', 'AUTH_FAILED');
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return refuse('Invalid or expired token', 'AUTH_FAILED');
+    }
+
+    try {
       const user = await User.findById(decoded.id);
-      if (!user) return next(new Error('User no longer exists'));
-      if (user.status === 'suspended') return next(new Error('Account suspended'));
+      if (!user) return refuse('User no longer exists', 'AUTH_FAILED');
+      // Same rules as the REST API: suspended, or signed out by a password change.
+      const rejection = rejectionFor(user, decoded);
+      if (rejection) return refuse(rejection, 'AUTH_FAILED');
 
       socket.userId = String(user._id);
       next();
     } catch (err) {
-      next(new Error('Invalid or expired token'));
+      console.error('[socket] could not check the session:', err.message);
+      refuse('The server is busy, please retry', 'SERVER_ERROR');
     }
   });
 

@@ -566,6 +566,11 @@ function ThumbnailUpload({ courseId, value, onChange }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
+  // The saved image could not be loaded — e.g. one uploaded before images were
+  // kept in the database, which the host's disk wipe has since removed.
+  const [missing, setMissing] = useState(false);
+
+  useEffect(() => setMissing(false), [value]);
 
   const isUploaded = typeof value === 'string' && value.startsWith('/uploads/');
 
@@ -646,16 +651,20 @@ function ThumbnailUpload({ courseId, value, onChange }) {
 
       {error && <p className="field-error">{error}</p>}
 
+      {missing && (
+        <p className="field-error">
+          This image can no longer be found on the server. Upload it again and save the course.
+        </p>
+      )}
+
       {/* Shows the actual served file, so a broken path is obvious here
           rather than after saving. */}
-      {value && (
+      {value && !missing && (
         <img
           src={resolveMediaUrl(value)}
           alt=""
           className="mt-3 h-24 w-auto rounded-lg border border-ink-100 object-cover"
-          onError={(e) => {
-            e.currentTarget.style.display = 'none';
-          }}
+          onError={() => setMissing(true)}
         />
       )}
     </div>

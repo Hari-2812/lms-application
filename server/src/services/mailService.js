@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const settingsService = require('./settingsService');
 
@@ -22,6 +23,10 @@ const RESEND_TEST_SENDER = 'onboarding@resend.dev';
 // Resend's default limit is 2 requests per second per team.
 const RESEND_MIN_GAP_MS = 550;
 const RESEND_BATCH_SIZE = 100;
+// A hung connection must not hang the request that is sending the email.
+const RESEND_TIMEOUT_MS = 20000;
+// Network errors and 5xx answers are retried this many times.
+const RESEND_TRANSIENT_RETRIES = 2;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -119,25 +124,45 @@ function explainResend(status, data) {
   return `Resend: ${detail}`;
 }
 
-async function resendPost(apiKey, path, body, attempt = 0) {
+/**
+ * POSTs to Resend. Rate limits (429) are waited out; network failures,
+ * timeouts and 5xx answers are retried a couple of times. Every attempt of one
+ * call carries the same Idempotency-Key, so a retry after a lost response can
+ * never send the email twice.
+ */
+async function resendPost(apiKey, path, body, attempt = 0, idempotencyKey = crypto.randomUUID()) {
   await resendSlot();
+  const retryTransient = async (reason) => {
+    if (attempt >= RESEND_TRANSIENT_RETRIES) throw new Error(reason);
+    console.warn(`[mail] Resend attempt ${attempt + 1} failed (${reason}); retrying`);
+    await sleep(1000 * 2 ** attempt);
+    return resendPost(apiKey, path, body, attempt + 1, idempotencyKey);
+  };
+
   let res;
   try {
     res = await fetch(`${RESEND_API}${path}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
     });
   } catch (err) {
-    throw new Error(`Could not reach Resend: ${err.message}`);
+    const reason = err.name === 'TimeoutError' ? 'Resend did not answer in time' : `Could not reach Resend: ${err.message}`;
+    return retryTransient(reason);
   }
   const data = await res.json().catch(() => ({}));
 
   if (res.status === 429 && attempt < 3) {
     const retryAfter = Number(res.headers.get('retry-after'));
     await sleep((Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1 + attempt) * 1000);
-    return resendPost(apiKey, path, body, attempt + 1);
+    return resendPost(apiKey, path, body, attempt + 1, idempotencyKey);
   }
+  if (res.status >= 500) return retryTransient(explainResend(res.status, data));
   if (!res.ok) throw new Error(explainResend(res.status, data));
   return data;
 }
@@ -200,9 +225,12 @@ async function sendMail({ to, subject, text, html }) {
 }
 
 /**
- * Sends many messages (notification copies). With Resend they go out in
- * batches of 100, so a notice to every learner is a handful of requests
- * rather than one per learner. Resolves { sent, failed }; never throws.
+ * Sends many messages (notification copies, task announcements). With Resend
+ * they go out in batches of 100, so a notice to every learner is a handful of
+ * requests rather than one per learner.
+ *
+ * Resolves { sent, failed, provider?, notConfigured?, error? } — `error` is
+ * the first failure's reason, for the admin. Never throws.
  */
 async function sendMany(messages) {
   if (!messages.length) return { sent: 0, failed: 0 };
@@ -211,16 +239,18 @@ async function sendMany(messages) {
 
   if (!config) {
     console.log(`[mail] Email not configured — ${messages.length} notification email(s) not sent.`);
-    return { sent: 0, failed: messages.length };
+    return { sent: 0, failed: messages.length, notConfigured: true, error: 'Email is not configured' };
   }
 
   if (config.kind === 'smtp') {
     const results = await Promise.allSettled(messages.map((message) => sendMail(message)));
     const sent = results.filter((r) => r.status === 'fulfilled' && r.value.sent).length;
-    return { sent, failed: messages.length - sent };
+    const error = results.find((r) => r.status === 'fulfilled' && !r.value.sent)?.value?.error;
+    return { sent, failed: messages.length - sent, provider: 'smtp', ...(error ? { error } : {}) };
   }
 
   let sent = 0;
+  let error;
   for (let i = 0; i < messages.length; i += RESEND_BATCH_SIZE) {
     const chunk = messages.slice(i, i + RESEND_BATCH_SIZE);
     try {
@@ -228,9 +258,10 @@ async function sendMany(messages) {
       sent += chunk.length;
     } catch (err) {
       console.error(`[mail] resend batch of ${chunk.length} failed:`, err.message);
+      error = error || err.message;
     }
   }
-  return { sent, failed: messages.length - sent };
+  return { sent, failed: messages.length - sent, provider: 'resend', ...(error ? { error } : {}) };
 }
 
 module.exports = { sendMail, sendMany, isConfigured, describe, RESEND_TEST_SENDER };

@@ -4,18 +4,17 @@ const path = require('path');
 const multer = require('multer');
 
 /**
- * Admin image uploads (course thumbnails), stored on the server's disk.
+ * Admin image uploads (course thumbnails, homepage / sign-in pictures).
  *
  * WHERE THE FILES GO
- * server/uploads/thumbnails, served read-only at /uploads/... by index.js.
- * The directory is gitignored.
+ * Into MongoDB (models/StoredImage), served at /uploads/thumbnails/:filename.
+ * They used to be written to server/uploads/thumbnails, but the API runs on
+ * Render, whose filesystem is wiped on every deploy, restart and free-tier
+ * spin-down — uploaded thumbnails disappeared while the courses still
+ * pointed at them. The database is the store that survives.
  *
- * DEPLOYMENT CAVEAT
- * This is local disk. Hosts that give you an ephemeral filesystem
- * (Render, Railway, Fly, Heroku, a Vercel serverless function) wipe it on
- * every deploy and restart, so uploaded thumbnails disappear while the
- * database still points at them. To keep them, attach a persistent volume
- * and point UPLOAD_DIR at it, or move to object storage (S3/Cloudinary).
+ * Files already on disk (local development, or a persistent volume mounted
+ * at UPLOAD_DIR) are still served from there first; see index.js.
  */
 
 const UPLOAD_ROOT = process.env.UPLOAD_DIR
@@ -24,7 +23,11 @@ const UPLOAD_ROOT = process.env.UPLOAD_DIR
 
 const THUMBNAIL_DIR = path.join(UPLOAD_ROOT, 'thumbnails');
 
-fs.mkdirSync(THUMBNAIL_DIR, { recursive: true });
+try {
+  fs.mkdirSync(THUMBNAIL_DIR, { recursive: true });
+} catch {
+  // A read-only filesystem is fine now that uploads live in the database.
+}
 
 /**
  * Raster images only.
@@ -42,22 +45,41 @@ const ALLOWED = new Map([
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, THUMBNAIL_DIR),
+/**
+ * The image type the bytes actually are, from their file signature, or null.
+ *
+ * The browser's Content-Type is only a guess from the file extension — an
+ * iPhone HEIC photo renamed to .jpg arrives as image/jpeg and then shows as a
+ * broken image everywhere. Checking the signature rejects it at upload time.
+ */
+function sniffImageType(buffer) {
+  if (!buffer || buffer.length < 12) return null;
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  const head = buffer.subarray(0, 6).toString('ascii');
+  if (head === 'GIF87a' || head === 'GIF89a') return 'image/gif';
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  return null;
+}
 
-  /**
-   * The stored name is generated, never derived from what the browser sent.
-   * An attacker-supplied name like "../../src/index.js" or "evil.html" would
-   * otherwise decide where the bytes land and how they are served back.
-   */
-  filename: (_req, file, cb) => {
-    const extension = ALLOWED.get(file.mimetype) || '.bin';
-    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${extension}`);
-  },
-});
+/**
+ * The stored name is generated, never derived from what the browser sent.
+ * An attacker-supplied name like "../../src/index.js" or "evil.html" would
+ * otherwise decide where the bytes land and how they are served back.
+ */
+function generateFilename(contentType) {
+  const extension = ALLOWED.get(contentType) || '.bin';
+  return `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${extension}`;
+}
+
+/** Names this server generates — anything else is not one of our uploads. */
+const STORED_NAME = /^\d{10,16}-[a-f0-9]{16}\.(jpg|png|webp|gif)$/;
 
 const uploadImage = multer({
-  storage,
+  // Held in memory just long enough to be saved to the database.
+  storage: multer.memoryStorage(),
   limits: { fileSize: MAX_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED.has(file.mimetype)) {
@@ -95,4 +117,12 @@ function resolveStoredThumbnail(filename) {
   return resolved;
 }
 
-module.exports = { uploadThumbnail, UPLOAD_ROOT, THUMBNAIL_DIR, resolveStoredThumbnail };
+module.exports = {
+  uploadThumbnail,
+  UPLOAD_ROOT,
+  THUMBNAIL_DIR,
+  resolveStoredThumbnail,
+  sniffImageType,
+  generateFilename,
+  STORED_NAME,
+};

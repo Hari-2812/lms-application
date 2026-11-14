@@ -52,6 +52,17 @@ function normaliseDriveLink(href) {
   }
 }
 
+/**
+ * The frontend origin used in emailed links (password resets, task emails).
+ * Taken from configuration and never from the request: an Origin/Host header
+ * is attacker-controlled, and trusting it would let anyone have a reset link
+ * pointed at their own site.
+ */
+function appUrl() {
+  const configured = (process.env.APP_URL || process.env.CLIENT_URL || '').split(',')[0].trim();
+  return (configured || 'http://localhost:5173').replace(/\/$/, '');
+}
+
 /** Accepts a full Google Sheets URL or a bare spreadsheet id; returns the id or ''. */
 function extractSpreadsheetId(raw) {
   const value = String(raw ?? '').trim();
@@ -61,4 +72,4 @@ function extractSpreadsheetId(raw) {
   return /^[a-zA-Z0-9-_]{20,}$/.test(value) ? value : '';
 }
 
-module.exports = { checkUrl, normaliseDriveLink, extractSpreadsheetId };
+module.exports = { checkUrl, normaliseDriveLink, extractSpreadsheetId, appUrl };

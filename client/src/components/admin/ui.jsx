@@ -124,6 +124,8 @@ export function useFlash() {
   return {
     node,
     success: useCallback((m) => show('success', m), [show]),
+    // Done, but with something the admin should know (e.g. emails not sent).
+    warning: useCallback((m) => show('warning', m), [show]),
     error: useCallback((m) => show('error', m), [show]),
     clear,
   };

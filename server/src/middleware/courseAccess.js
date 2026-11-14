@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Lesson = require('../models/Lesson');
 const { courseAccessFor } = require('../services/enrolmentService');
+const lessonProgress = require('../services/lessonProgressService');
 
 /**
  * Gate for a course's lessons, video stream, progress and reviews. Lets
@@ -34,6 +35,38 @@ function requireCourseAccess(resolveCourseId) {
   };
 }
 
+/**
+ * Sequential unlocking: refuses a lesson the learner has not reached yet —
+ * its details, its video stream (so a copied stream URL does not work either)
+ * and progress saves for it. Runs after requireCourseAccess, which supplies
+ * req.courseId and req.courseAccess. Staff are never locked out.
+ */
+function requireLessonUnlocked(resolveLessonId) {
+  return async function (req, res, next) {
+    try {
+      const lessonId = await resolveLessonId(req);
+      // Missing or malformed ids are left for the handler to 404.
+      if (!lessonId || !mongoose.isValidObjectId(lessonId)) return next();
+
+      const locked = await lessonProgress.isLessonLocked({
+        studentId: req.user.id,
+        courseId: req.courseId,
+        lessonId,
+        access: req.courseAccess,
+      });
+      if (locked) {
+        return res.status(403).json({
+          error: 'This lesson is locked. Finish the previous lesson to unlock it.',
+          code: 'LESSON_LOCKED',
+        });
+      }
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
 /** A lesson id from the request, or null when it is missing or malformed (→ 404, not a 500). */
 async function courseOfLesson(lessonId) {
   if (!mongoose.isValidObjectId(lessonId)) return null;
@@ -49,4 +82,10 @@ const resolveCourseId = {
   fromLessonBody: (fieldName) => (req) => courseOfLesson(req.body?.[fieldName]),
 };
 
-module.exports = { requireCourseAccess, resolveCourseId };
+/** Where requireLessonUnlocked finds the lesson id. */
+const resolveLessonId = {
+  fromParam: (paramName) => (req) => req.params[paramName],
+  fromBody: (fieldName) => (req) => req.body?.[fieldName],
+};
+
+module.exports = { requireCourseAccess, resolveCourseId, requireLessonUnlocked, resolveLessonId };

@@ -4,6 +4,7 @@ const Course = require('../models/Course');
 const { notifyUser } = require('../services/notificationService');
 const certificateService = require('../services/certificateService');
 const settingsService = require('../services/settingsService');
+const lessonProgress = require('../services/lessonProgressService');
 
 const MILESTONES = [50, 100];
 
@@ -38,22 +39,43 @@ async function checkCourseMilestone(studentId, courseId) {
   });
 }
 
-/** POST /api/progress  body: { lessonId, position, duration } */
+/** The progress fields every response shares. */
+function progressPayload(lessonId, progress) {
+  return {
+    lessonId,
+    position: progress?.position || 0,
+    duration: progress?.duration || 0,
+    percent: progress?.percent || 0,
+    watchedSeconds: progress?.watchedSeconds || 0,
+    completed: Boolean(progress?.completed),
+    updatedAt: progress?.updatedAt || null,
+  };
+}
+
+/**
+ * POST /api/progress  body: { lessonId, position, duration, watched }
+ *
+ * `watched` is the list of [start, end] spans the player actually played.
+ * The lesson's percent is how much of the video those spans cover (see
+ * lessonProgressService), so seeking past parts of a video does not count
+ * them as watched.
+ */
 async function saveProgress(req, res, next) {
   try {
-    const { lessonId, position = 0, duration = 0 } = req.body || {};
+    const { lessonId } = req.body || {};
     if (!lessonId) return res.status(400).json({ error: 'lessonId is required' });
 
     const lesson = await Lesson.findById(lessonId);
     if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
 
-    const percent = duration > 0 ? Math.min(100, Math.round((position / duration) * 100)) : 0;
+    const existing = await Progress.findOne({ studentId: req.student.id, lessonId });
+    const report = lessonProgress.applyWatchReport(existing, req.body, lesson);
+    if (report.error) return res.status(400).json({ error: report.error });
 
     // "Watched enough" threshold — Settings → Learning rules.
     const { learning } = await settingsService.get();
-    const existing = await Progress.findOne({ studentId: req.student.id, lessonId });
     const wasCompleted = existing?.completed ?? false;
-    const completed = wasCompleted || percent >= learning.lessonCompletePercent;
+    const completed = wasCompleted || report.percent >= learning.lessonCompletePercent;
 
     const progress = await Progress.findOneAndUpdate(
       { studentId: req.student.id, lessonId },
@@ -61,9 +83,11 @@ async function saveProgress(req, res, next) {
         studentId: req.student.id,
         lessonId,
         courseId: lesson.courseId,
-        position,
-        duration,
-        percent,
+        position: report.position,
+        duration: report.duration,
+        percent: report.percent,
+        watchedSeconds: report.watchedSeconds,
+        watchedRanges: report.watchedRanges,
         completed,
       },
       { new: true, upsert: true }
@@ -82,11 +106,9 @@ async function saveProgress(req, res, next) {
     }
 
     res.json({
-      lessonId: progress.lessonId,
-      position: progress.position,
-      percent: progress.percent,
-      completed: progress.completed,
-      updatedAt: progress.updatedAt,
+      ...progressPayload(progress.lessonId, progress),
+      // Completing a lesson unlocks the next one; the player refreshes its list.
+      justCompleted: completed && !wasCompleted,
     });
   } catch (err) {
     next(err);
@@ -101,23 +123,7 @@ async function getProgress(req, res, next) {
       lessonId: req.params.lessonId,
     });
 
-    if (!progress) {
-      return res.json({
-        lessonId: req.params.lessonId,
-        position: 0,
-        percent: 0,
-        completed: false,
-        updatedAt: null,
-      });
-    }
-
-    res.json({
-      lessonId: progress.lessonId,
-      position: progress.position,
-      percent: progress.percent,
-      completed: progress.completed,
-      updatedAt: progress.updatedAt,
-    });
+    res.json(progressPayload(progress?.lessonId || req.params.lessonId, progress));
   } catch (err) {
     next(err);
   }

@@ -62,6 +62,25 @@ async function explainFailure(src, showDetails) {
   };
 }
 
+/**
+ * The spans of the video actually played, as [[start, end], …] in seconds.
+ * The browser keeps this list itself (`video.played`), and seeking never adds
+ * the part that was skipped — which is what makes watch time honest.
+ */
+function playedRanges(video) {
+  const ranges = [];
+  const played = video?.played;
+  if (!played) return ranges;
+  for (let i = 0; i < played.length; i += 1) ranges.push([played.start(i), played.end(i)]);
+  return ranges;
+}
+
+/**
+ * `onProgress(position, duration, force, watched)` is called on every
+ * timeupdate (throttling is the caller's job), with force=true on pause, on
+ * end, when the tab is hidden and when the player goes away. `watched` is the
+ * played spans above.
+ */
 export default function VideoPlayer({
   src,
   poster,
@@ -75,6 +94,33 @@ export default function VideoPlayer({
   const shellRef = useRef(null);
   const hideControlsTimer = useRef(null);
   const resumeApplied = useRef(false);
+  const onProgressRef = useRef(onProgress);
+
+  useEffect(() => {
+    onProgressRef.current = onProgress;
+  }, [onProgress]);
+
+  /**
+   * Report what was watched when the learner switches tab or leaves the
+   * lesson (Next, a curriculum link, Back), so the last few seconds since the
+   * periodic save are not lost. The element is captured up front because the
+   * ref is already cleared by the time an unmount cleanup runs.
+   */
+  useEffect(() => {
+    const video = videoRef.current;
+    const flush = () => {
+      if (!video || !video.played?.length || !Number.isFinite(video.duration) || !video.duration) return;
+      onProgressRef.current?.(video.currentTime, video.duration, true, playedRanges(video));
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      flush();
+    };
+  }, []);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isWaiting, setIsWaiting] = useState(true);
@@ -173,7 +219,7 @@ export default function VideoPlayer({
   const handleTimeUpdate = (event) => {
     const video = event.currentTarget;
     setCurrent(video.currentTime);
-    onProgress?.(video.currentTime, video.duration);
+    onProgress?.(video.currentTime, video.duration, false, playedRanges(video));
 
     if (video.buffered.length) {
       setBuffered(video.buffered.end(video.buffered.length - 1));
@@ -237,7 +283,8 @@ export default function VideoPlayer({
         onPause={() => {
           setIsPlaying(false);
           setShowControls(true);
-          onProgress?.(videoRef.current?.currentTime ?? 0, videoRef.current?.duration ?? 0, true);
+          const video = videoRef.current;
+          onProgress?.(video?.currentTime ?? 0, video?.duration ?? 0, true, playedRanges(video));
         }}
         onWaiting={() => setIsWaiting(true)}
         onPlaying={() => setIsWaiting(false)}
@@ -245,10 +292,11 @@ export default function VideoPlayer({
         onEnded={() => {
           setIsPlaying(false);
           setShowControls(true);
-          // Report the real media duration so the lesson is marked complete
-          // even when the seeded `duration` metadata differs from the file.
+          // Report the real media duration (the stored `duration` metadata can
+          // differ from the file) together with what was actually played —
+          // reaching the end by skipping ahead does not complete the lesson.
           const video = videoRef.current;
-          if (video?.duration) onProgress?.(video.duration, video.duration, true);
+          if (video?.duration) onProgress?.(video.duration, video.duration, true, playedRanges(video));
           onEnded?.();
         }}
         onError={() => {

@@ -29,6 +29,41 @@ function toLocalInput(value) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * What publishing did, in both channels — the in-app bell and email.
+ * Returns { tone, message }: a warning when the email channel did not get
+ * through, so the admin knows learners who are signed out were not reached.
+ */
+function publishOutcome(saved, prefix) {
+  const inApp = `${plural(saved.notified || 0, 'learner')} notified in the app`;
+  const email = saved.email;
+  if (!email || email.status === 'no_recipients') return { tone: 'success', message: `${prefix} — ${inApp}.` };
+
+  switch (email.status) {
+    case 'sent':
+      return { tone: 'success', message: `${prefix} — ${inApp} and ${plural(email.sent, 'email')} sent.` };
+    case 'partial':
+      return {
+        tone: 'warning',
+        message: `${prefix} — ${inApp}. ${plural(email.sent, 'email')} sent, ${email.failed} failed${email.error ? `: ${email.error}` : '.'}`,
+      };
+    case 'not_configured':
+      return {
+        tone: 'warning',
+        message: `${prefix} — ${inApp}, but no emails were sent: email is not set up yet (LMS settings → Email).`,
+      };
+    case 'disabled':
+      return { tone: 'success', message: `${prefix} — ${inApp}. Task emails are switched off in LMS settings → Email.` };
+    default:
+      return {
+        tone: 'warning',
+        message: `${prefix} — ${inApp}, but the emails could not be sent${email.error ? `: ${email.error}` : '.'}`,
+      };
+  }
+}
+
 export default function AssignmentManager({ courses = [], onChanged, onViewSubmissions }) {
   const { isSuperAdmin } = useAuth();
   const flash = useFlash();
@@ -88,11 +123,13 @@ export default function AssignmentManager({ courses = [], onChanged, onViewSubmi
     };
     try {
       const saved = editingId ? await updateAssignment(editingId, payload) : await createAssignment(payload);
-      flash.success(
-        saved.notified
-          ? `"${saved.title}" saved and ${saved.notified} learner${saved.notified === 1 ? '' : 's'} notified.`
-          : `"${saved.title}" saved${saved.published ? '' : ' as a draft'}.`
-      );
+      // Announced now (a new published task, or a draft just published).
+      if (saved.email || saved.notified) {
+        const { tone, message } = publishOutcome(saved, `"${saved.title}" published`);
+        flash[tone](message);
+      } else {
+        flash.success(`"${saved.title}" saved${saved.published ? '' : ' as a draft'}.`);
+      }
       reset();
       await load();
       onChanged?.();
@@ -106,7 +143,8 @@ export default function AssignmentManager({ courses = [], onChanged, onViewSubmi
   const publish = async (assignment) => {
     try {
       const saved = await updateAssignment(assignment.id, { published: true });
-      flash.success(`Published — ${saved.notified} learner${saved.notified === 1 ? '' : 's'} notified.`);
+      const { tone, message } = publishOutcome(saved, 'Published');
+      flash[tone](message);
       load();
     } catch (err) {
       flash.error(toErrorMessage(err));

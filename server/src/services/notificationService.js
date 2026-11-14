@@ -43,14 +43,19 @@ async function notifyUser(userId, { type, title, message, courseId, link }, { se
   return notification;
 }
 
-/** Creates + emits the same notification to a list of users. */
-async function notifyUsers(userIds, { type, title, message, courseId, link }, { setting } = {}) {
+/**
+ * Creates + emits the same notification to a list of users.
+ *
+ * `emailCopy: false` skips the generic "email a copy" for callers that send
+ * their own dedicated email (task announcements), so nobody gets it twice.
+ */
+async function notifyUsers(userIds, { type, title, message, courseId, link }, { setting, emailCopy = true } = {}) {
   if (!userIds.length || !(await allowed(setting))) return [];
   const docs = await Notification.insertMany(
     userIds.map((userId) => ({ userId, type, title, message, courseId, link }))
   );
   docs.forEach((doc) => emitToUser(doc.userId, doc.toJSON()));
-  emailCopies(userIds, { title, message });
+  if (emailCopy) emailCopies(userIds, { title, message });
   return docs;
 }
 

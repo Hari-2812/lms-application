@@ -443,7 +443,25 @@ export default function AdminSettings() {
                 <p className="text-sm font-semibold text-ink-900">Razorpay keys</p>
                 {keyMode && <Pill tone={keyMode === 'Live' ? 'green' : 'amber'}>{keyMode} mode</Pill>}
               </div>
-              <Input label="Key ID" value={payments.razorpayKeyId} onChange={field('payments', 'razorpayKeyId')} placeholder="rzp_test_…" />
+              {keyMode === 'Test' && (
+                <Alert tone="warning" className="sm:col-span-2">
+                  <span>
+                    <strong>Test keys — learners cannot really pay.</strong> Razorpay only simulates payments in test
+                    mode: a UPI app that scans the checkout QR code reports an invalid UPI ID, and real cards are
+                    declined. To accept payments, open the Razorpay Dashboard in <strong>Live mode</strong> → Account
+                    &amp; Settings → API keys, paste the <code>rzp_live_…</code> Key ID and its secret here, and add the
+                    webhook again in Live mode (test and live webhooks are separate).
+                  </span>
+                </Alert>
+              )}
+              {keyMode === 'Live' && (
+                <Alert tone="success" className="sm:col-span-2">
+                  Live mode — learners pay real money. The payee name a UPI app shows is your Razorpay account&apos;s
+                  registered business name. Keep payment capture on Automatic (Razorpay → Account &amp; Settings →
+                  Payment capture) so paid orders are never auto-refunded.
+                </Alert>
+              )}
+              <Input label="Key ID" value={payments.razorpayKeyId} onChange={field('payments', 'razorpayKeyId')} placeholder="rzp_live_…" />
               <Input
                 label="Key secret"
                 type="password"
@@ -500,7 +518,7 @@ export default function AdminSettings() {
           <Panel
             icon={Mail}
             title="Email"
-            description="Used for password resets, and for notification copies when switched on."
+            description="Used for password resets, new-task emails to learners, and notification copies when switched on."
             actions={emailConfigured ? <Pill tone="green">Email is set up</Pill> : <Pill tone="amber">Not set up</Pill>}
           >
             {emailStatus.configured ? (
@@ -524,6 +542,13 @@ export default function AdminSettings() {
                 checked={email.notificationCopies}
                 onChange={set('email', 'notificationCopies')}
                 description="Learners and admins also receive notifications by email."
+              />
+              <Toggle
+                id="email-tasks"
+                label="Email learners when a task is published"
+                checked={email.taskEmails !== false}
+                onChange={set('email', 'taskEmails')}
+                description="Sent alongside the in-app notification, so learners who are signed out hear about it too."
               />
             </div>
 

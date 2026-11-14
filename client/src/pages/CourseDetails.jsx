@@ -315,6 +315,8 @@ export default function CourseDetails() {
                   lessons={lessons}
                   courseId={course._id}
                   linkTo={(cid, lid) => (isAuthenticated ? `/learn/${cid}/${lid}` : '/login')}
+                  // Lessons unlock one at a time; the API marks the ones not reached yet.
+                  isLocked={(lesson) => Boolean(lesson.locked)}
                 />
               )}
             </section>

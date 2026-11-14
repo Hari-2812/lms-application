@@ -21,7 +21,12 @@ const insightsController = require('../controllers/adminInsightsController');
 const reviewController = require('../controllers/reviewController');
 const enquiryController = require('../controllers/enquiryController');
 const { requireAuth, optionalAuth, requireAdmin, requireSuperAdmin } = require('../middleware/authMiddleware');
-const { requireCourseAccess, resolveCourseId } = require('../middleware/courseAccess');
+const {
+  requireCourseAccess,
+  resolveCourseId,
+  requireLessonUnlocked,
+  resolveLessonId,
+} = require('../middleware/courseAccess');
 const { uploadThumbnail } = require('../middleware/upload');
 const driveService = require('../services/googleDriveService');
 
@@ -150,6 +155,7 @@ router.get(
   '/lessons/:id',
   requireAuth,
   requireCourseAccess(resolveCourseId.fromLessonParam('id')),
+  requireLessonUnlocked(resolveLessonId.fromParam('id')),
   lessonController.getLesson
 );
 
@@ -189,12 +195,16 @@ router.get(
   '/videos/:lessonId/stream',
   requireAuth,
   requireCourseAccess(resolveCourseId.fromLessonParam('lessonId')),
+  // Sequential unlocking applies to the stream itself, so a copied URL for a
+  // locked lesson does not play either.
+  requireLessonUnlocked(resolveLessonId.fromParam('lessonId')),
   videoController.streamLessonVideo
 );
 router.get(
   '/videos/:lessonId/info',
   requireAuth,
   requireCourseAccess(resolveCourseId.fromLessonParam('lessonId')),
+  requireLessonUnlocked(resolveLessonId.fromParam('lessonId')),
   videoController.getVideoInfo
 );
 
@@ -203,6 +213,7 @@ router.post(
   '/progress',
   requireAuth,
   requireCourseAccess(resolveCourseId.fromLessonBody('lessonId')),
+  requireLessonUnlocked(resolveLessonId.fromBody('lessonId')),
   progressController.saveProgress
 );
 router.get('/progress/:lessonId', requireAuth, progressController.getProgress);

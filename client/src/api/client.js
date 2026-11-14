@@ -19,6 +19,58 @@ export { API_ORIGIN };
 
 export const api = axios.create({ baseURL: `${API_ORIGIN}/api` });
 
+/* ---------------------------------------------------------------------------
+ * Connection resilience
+ *
+ * The API runs on Render, which restarts and (on its free tier) sleeps when
+ * idle; learners are often on mobile data, where the connection drops or
+ * changes mid-request (ERR_NETWORK_CHANGED, ERR_INTERNET_DISCONNECTED, DNS
+ * lookups that fail once). A single failed request used to leave a page
+ * empty until it was reloaded.
+ *
+ * So reads (GET) are given a timeout and retried a few times with a growing
+ * delay — and, when the browser is offline, as soon as it is back online.
+ * Writes are never retried automatically: repeating a POST could pay or
+ * submit twice.
+ * ------------------------------------------------------------------------- */
+
+const READ_TIMEOUT_MS = 40000;
+const RETRY_DELAYS_MS = [1000, 2500, 5000];
+// What Render answers while an instance restarts, deploys or wakes up.
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+const OFFLINE_WAIT_MS = 30000;
+
+const isRead = (config) => ['get', 'head'].includes(String(config?.method || 'get').toLowerCase());
+
+api.interceptors.request.use((config) => {
+  if (isRead(config) && !config.timeout) config.timeout = READ_TIMEOUT_MS;
+  return config;
+});
+
+function isRetryable(error) {
+  const config = error?.config;
+  if (!config || config.retry === false || !isRead(config)) return false;
+  if (axios.isCancel(error) || error.code === 'ERR_CANCELED') return false;
+  const status = error.response?.status;
+  // No response at all: offline, DNS failure, connection reset or timeout.
+  return status ? RETRYABLE_STATUS.has(status) : true;
+}
+
+/** Waits before a retry; while offline, until the connection is back (or a cap). */
+function waitBeforeRetry(attempt) {
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const delay = offline ? OFFLINE_WAIT_MS : RETRY_DELAYS_MS[attempt] * (0.8 + Math.random() * 0.4);
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      window.removeEventListener('online', done);
+      resolve();
+    };
+    const timer = setTimeout(done, delay);
+    if (offline) window.addEventListener('online', done);
+  });
+}
+
 /**
  * If a session token is present it is sent on every request. The current
  * backend uses mock auth and ignores it; a real backend can start verifying
@@ -54,7 +106,7 @@ export function setUnauthorizedHandler(handler) {
  */
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     const status = error?.response?.status;
     const url = error?.config?.url || '';
 
@@ -67,6 +119,17 @@ api.interceptors.response.use(
 
     if (status === 401 && !isAuthAttempt && hadToken) {
       onUnauthorized?.();
+    }
+
+    // A read that failed for connection reasons gets another go or three.
+    if (isRetryable(error)) {
+      const { config } = error;
+      const attempt = config.retryAttempt || 0;
+      if (attempt < RETRY_DELAYS_MS.length) {
+        config.retryAttempt = attempt + 1;
+        await waitBeforeRetry(attempt);
+        return api.request(config);
+      }
     }
 
     return Promise.reject(error);
@@ -168,7 +231,8 @@ export const updatePayment = (id, payload) => api.patch(`/admin/payments/${id}`,
 
 /** Fetches the PDF with the session's token and hands it to the browser as a download. */
 export async function downloadPaymentsReport(params) {
-  const response = await api.get('/admin/payments/report.pdf', { params, responseType: 'blob' });
+  // Building the PDF can take a while on a small server.
+  const response = await api.get('/admin/payments/report.pdf', { params, responseType: 'blob', timeout: 120000 });
   const url = URL.createObjectURL(response.data);
   const link = document.createElement('a');
   link.href = url;
@@ -345,6 +409,21 @@ export function toErrorMessage(err, fallback = 'Something went wrong. Please try
   const responseError = err?.response?.data?.error;
   if (typeof responseError === 'string') return responseError;
   if (responseError && typeof responseError.message === 'string') return responseError.message;
+
+  // Connection problems: say what happened in plain words, not "Network Error".
+  if (err?.isAxiosError) {
+    if (err.code === 'ERR_CANCELED') return fallback;
+    const status = err.response?.status;
+    if (status && RETRYABLE_STATUS.has(status)) {
+      return 'The server is temporarily unavailable. Please try again in a moment.';
+    }
+    if (!err.response) {
+      return err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT'
+        ? 'The server is taking too long to respond. Please try again in a moment.'
+        : "We couldn't reach the server. Check your internet connection and try again.";
+    }
+  }
+
   if (typeof err?.message === 'string') return err.message;
   return fallback;
 }

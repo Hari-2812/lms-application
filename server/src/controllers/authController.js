@@ -5,6 +5,7 @@ const activity = require('../services/activityService');
 const mailService = require('../services/mailService');
 const settingsService = require('../services/settingsService');
 const { notifyAdmins } = require('../services/notificationService');
+const { appUrl } = require('../utils/url');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret-key-change-in-prod';
 const JWT_EXPIRES_IN = '7d';
@@ -23,16 +24,6 @@ function generateToken(user) {
 
 const normaliseEmail = (value) => String(value || '').trim().toLowerCase();
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
-
-/**
- * The frontend origin used in emailed links. Taken from configuration and
- * never from the request: an Origin/Host header is attacker-controlled, and
- * trusting it would let anyone have a reset link pointed at their own site.
- */
-function appUrl() {
-  const configured = (process.env.APP_URL || process.env.CLIENT_URL || '').split(',')[0].trim();
-  return (configured || 'http://localhost:5173').replace(/\/$/, '');
-}
 
 async function register(req, res, next) {
   try {

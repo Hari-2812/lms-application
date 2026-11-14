@@ -91,6 +91,10 @@ const DEFAULTS = {
     fromEmail: '',
     // Also email a copy of in-app notifications, not just password resets.
     notificationCopies: false,
+    // Email the assigned learners when a task is published ("Publish now and
+    // notify learners") — a separate channel from the in-app bell, so it
+    // reaches learners who are signed out.
+    taskEmails: true,
   },
   notifications: {
     admin: {
@@ -126,6 +130,9 @@ const DEFAULTS = {
     accessDurationDays: 0,
     // When off, enrolling in a free course waits for an admin like a paid one.
     freeCourseSelfEnrol: true,
+    // Lessons unlock one at a time: the next video opens once the previous
+    // one is completed. Staff can always open every lesson.
+    sequentialLessons: true,
   },
 };
 
@@ -246,6 +253,9 @@ async function update(patch, userId) {
   if (!['', 'resend', 'smtp'].includes(next.email.provider)) next.email.provider = '';
   if (clean.email?.resendApiKey && !/^re_[A-Za-z0-9_-]+$/.test(clean.email.resendApiKey)) {
     throw badRequest('That does not look like a Resend API key — they start with "re_".');
+  }
+  if (clean.payments?.razorpayKeyId && !/^rzp_(live|test)_[A-Za-z0-9]+$/.test(clean.payments.razorpayKeyId)) {
+    throw badRequest('That does not look like a Razorpay Key ID — it starts with "rzp_live_" (or "rzp_test_" for testing).');
   }
 
   await Setting.findOneAndUpdate(

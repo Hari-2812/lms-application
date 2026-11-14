@@ -1,18 +1,24 @@
+import { useEffect, useState } from 'react';
 import { resolveMediaUrl } from '../../api/client';
 import { accentOf, categoryIcon } from '../../utils/course.js';
 
 /**
  * Course artwork.
  *
- * Uses course.thumbnail when the record has one. Otherwise it draws original
- * abstract artwork derived from the course's own accent and category — no
- * unrelated stock photography is pulled in.
+ * Uses course.thumbnail when the record has one. Otherwise — or when that
+ * image cannot be loaded — it draws original abstract artwork derived from
+ * the course's own accent and category, so a missing file never shows up as
+ * a broken image. No unrelated stock photography is pulled in.
  */
 export default function CourseThumbnail({ course, className = '', rounded = '' }) {
   const accent = accentOf(course);
   const Icon = categoryIcon(course?.category || course?.title || '');
+  const [failed, setFailed] = useState(false);
 
-  if (course?.thumbnail) {
+  // A new (re-uploaded) thumbnail gets a fresh chance to load.
+  useEffect(() => setFailed(false), [course?.thumbnail]);
+
+  if (course?.thumbnail && !failed) {
     return (
       <img
         // An uploaded thumbnail is stored as "/uploads/..." and served by the
@@ -21,6 +27,7 @@ export default function CourseThumbnail({ course, className = '', rounded = '' }
         alt={course.title}
         loading="lazy"
         decoding="async"
+        onError={() => setFailed(true)}
         className={`h-full w-full object-cover transition duration-500 ease-out group-hover:scale-105 ${rounded} ${className}`}
       />
     );

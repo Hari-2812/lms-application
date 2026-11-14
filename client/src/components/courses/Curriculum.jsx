@@ -7,8 +7,11 @@ import { formatDuration } from '../../utils/format.js';
  * sidebar.
  *
  * States: ✓ completed · ▶ playing now · ○ available · 🔒 locked
- * A lesson is only ever locked when `isLocked` says so — by default students
- * can jump anywhere, which is how the existing app behaves.
+ * A lesson is only ever locked when `isLocked` says so. The learner pages pass
+ * the API's `lesson.locked` flag (lessons unlock one at a time); the API
+ * refuses locked lessons itself, so this is display, not the enforcement.
+ *
+ * Each started lesson shows how much of its video has been watched.
  *
  * `theme="dark"` is used by the video-learning panel, which sits on the dark
  * shell rather than on a white card.
@@ -24,6 +27,7 @@ const THEMES = {
     meta: 'text-ink-500',
     duration: 'text-ink-400',
     idle: 'text-ink-300',
+    track: 'bg-ink-100',
   },
   dark: {
     divide: 'divide-ink-800',
@@ -35,6 +39,7 @@ const THEMES = {
     meta: 'text-ink-500',
     duration: 'text-ink-500',
     idle: 'text-ink-600',
+    track: 'bg-ink-800',
   },
 };
 
@@ -54,8 +59,9 @@ export default function Curriculum({
       {lessons.map((lesson, index) => {
         const isActive = lesson._id === activeLessonId;
         const isDone = Boolean(lesson.progress?.completed);
-        const locked = isLocked ? isLocked(lesson, index) : false;
-        const watched = lesson.progress?.percent || 0;
+        const locked = !isDone && (isLocked ? isLocked(lesson, index) : false);
+        const watched = Math.min(100, Math.max(0, Math.round(lesson.progress?.percent || 0)));
+        const showBar = !isDone && !locked && watched > 0;
 
         const content = (
           <>
@@ -85,13 +91,19 @@ export default function Curriculum({
 
               <span className={`mt-0.5 block text-[11px] ${t.meta}`}>
                 {isDone
-                  ? 'Completed'
-                  : watched > 0
-                    ? `${watched}% watched`
-                    : locked
-                      ? 'Locked'
-                      : 'Not started'}
+                  ? 'Completed · 100%'
+                  : locked
+                    ? 'Locked — complete the previous lesson'
+                    : watched > 0
+                      ? `${watched}% watched`
+                      : 'Not started · 0%'}
               </span>
+
+              {showBar && (
+                <span className={`mt-1.5 block h-1 w-full max-w-[12rem] overflow-hidden rounded-full ${t.track}`} aria-hidden="true">
+                  <span className="block h-full rounded-full bg-primary-500" style={{ width: `${watched}%` }} />
+                </span>
+              )}
             </span>
 
             <span className={`shrink-0 text-xs tabular-nums ${t.duration}`}>
@@ -107,7 +119,11 @@ export default function Curriculum({
         return (
           <li key={lesson._id}>
             {locked ? (
-              <div className={`${rowClass} cursor-not-allowed opacity-60`} aria-disabled="true">
+              <div
+                className={`${rowClass} cursor-not-allowed opacity-60`}
+                aria-disabled="true"
+                title="Complete the previous lesson to unlock this one"
+              >
                 {content}
               </div>
             ) : (

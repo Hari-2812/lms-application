@@ -4,11 +4,13 @@ const Submission = require('../models/Submission');
 const activity = require('../services/activityService');
 const { grantedCourseIds, learnerIdsWithAccess } = require('../services/enrolmentService');
 const { notifyUsers, activeLearnerIds } = require('../services/notificationService');
+const { emailNewTask, describeDelivery, formatDue } = require('../services/taskEmailService');
 
 /**
  * Assignments: tasks with a due date that the admin sets and learners hand
  * work in against. Publishing one notifies the learners it is for — that
- * course's enrolled learners, or everyone when it has no course.
+ * course's enrolled learners, or everyone when it has no course — in the app
+ * and by email, as two separate channels (see taskEmailService).
  */
 
 function buildFields(body = {}) {
@@ -31,11 +33,14 @@ function buildFields(body = {}) {
   return fields;
 }
 
-const dueText = (date) =>
-  date
-    ? new Date(date).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : '';
+// In Indian time, not the server's (UTC on Render): "14 Nov 2026, 6:00 pm IST".
+const dueText = formatDue;
 
+/**
+ * Tells a newly published task's learners about it, through both channels.
+ * Returns { notified, email } — how many in-app notifications were created,
+ * and the email delivery summary.
+ */
 async function announce(assignment) {
   // Course grants plus Full Access; suspended learners are filtered out either way.
   const recipients = assignment.courseId
@@ -43,7 +48,9 @@ async function announce(assignment) {
     : await activeLearnerIds();
 
   const course = assignment.courseId ? await Course.findById(assignment.courseId).select('title') : null;
-  await notifyUsers(
+
+  // In-app: stored, pushed to anyone online, and there at their next sign-in.
+  const inApp = await notifyUsers(
     recipients,
     {
       type: 'task',
@@ -54,9 +61,22 @@ async function announce(assignment) {
       courseId: assignment.courseId || undefined,
       link: '/tasks',
     },
-    { setting: 'learner.newTask' }
+    // The dedicated task email below replaces the generic email copy.
+    { setting: 'learner.newTask', emailCopy: false }
   );
-  return recipients.length;
+
+  // Email: its own channel, so it reaches learners who are signed out.
+  const email = await emailNewTask(assignment, { course, recipientIds: recipients });
+
+  return { notified: inApp.length, email };
+}
+
+/** "and notified 12 learners in the app, emailed 12 learners" for the activity log. */
+function announcementSummary({ notified, email }) {
+  const parts = [`notified ${notified} learner${notified === 1 ? '' : 's'} in the app`];
+  const delivery = describeDelivery(email);
+  if (delivery) parts.push(delivery);
+  return parts.join(', ');
 }
 
 /* -------------------------------------------------------------- learner */
@@ -148,19 +168,20 @@ async function create(req, res, next) {
     if (!fields.title) return res.status(400).json({ error: 'Give the task a title' });
 
     const assignment = await Assignment.create({ published: true, ...fields, createdBy: req.user._id });
-    const notified = assignment.published ? await announce(assignment) : 0;
+    const announced = assignment.published ? await announce(assignment) : null;
 
     await activity.log(req, {
       category: 'task',
       action: 'task.created',
       summary: `Created task "${assignment.title}"${assignment.dueDate ? ` due ${dueText(assignment.dueDate)}` : ''}${
-        assignment.published ? ` and notified ${notified} learner${notified === 1 ? '' : 's'}` : ' as a draft'
+        announced ? ` and ${announcementSummary(announced)}` : ' as a draft'
       }`,
       entityType: 'assignment',
       entityId: assignment._id,
+      ...(announced ? { meta: { email: announced.email } } : {}),
     });
 
-    res.status(201).json({ ...assignment.toJSON(), notified });
+    res.status(201).json({ ...assignment.toJSON(), notified: announced?.notified || 0, email: announced?.email || null });
   } catch (err) {
     next(err);
   }
@@ -177,18 +198,18 @@ async function update(req, res, next) {
       runValidators: true,
     });
 
-    let notified = 0;
-    if (!before.published && assignment.published) notified = await announce(assignment);
+    const announced = !before.published && assignment.published ? await announce(assignment) : null;
 
     await activity.log(req, {
       category: 'task',
       action: 'task.updated',
-      summary: `Updated task "${assignment.title}"${notified ? ` and published it to ${notified} learners` : ''}`,
+      summary: `Updated task "${assignment.title}"${announced ? ` and published it: ${announcementSummary(announced)}` : ''}`,
       entityType: 'assignment',
       entityId: assignment._id,
+      ...(announced ? { meta: { email: announced.email } } : {}),
     });
 
-    res.json({ ...assignment.toJSON(), notified });
+    res.json({ ...assignment.toJSON(), notified: announced?.notified || 0, email: announced?.email || null });
   } catch (err) {
     next(err);
   }

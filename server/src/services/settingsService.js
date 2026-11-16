@@ -1,5 +1,6 @@
+const crypto = require('crypto');
 const Setting = require('../models/Setting');
-const { checkUrl, extractSpreadsheetId } = require('../utils/url');
+const { checkUrl, extractSpreadsheetId, checkAppsScriptUrl } = require('../utils/url');
 
 /**
  * Platform settings: branding, payment gateway, email, notification switches
@@ -45,10 +46,16 @@ const DEFAULTS = {
     // Optional: clicking the image opens this page (an event, an announcement).
     heroImageLink: '',
   },
-  // Where "Enroll Now" enquiries are copied. The sheet must be shared (Editor)
-  // with the Google service account the server already uses for Drive.
+  // Where "Enroll Now" enquiries are copied: a Google Apps Script web app
+  // attached to the sheet (server/apps-script/EnquiriesSheet.gs).
   integrations: {
     googleSheetEnabled: true,
+    // The deployed web app's /exec URL. Rows are sent here.
+    googleSheetWebAppUrl: '',
+    // Sent with every request and checked by the script. Generated once by
+    // ensureSheetSecret() and baked into the script the admin copies.
+    googleSheetSecret: '',
+    // Only used for the "Open sheet" button.
     googleSheetId: '1Zem5lhcOYiys20LsjTRuIyqTeZD5HLoD-QkM7mKkgao',
     // Blank = the first tab in the spreadsheet.
     googleSheetTab: '',
@@ -140,6 +147,8 @@ const DEFAULTS = {
 const SECRET_FIELDS = {
   payments: ['razorpayKeySecret', 'razorpayWebhookSecret'],
   email: ['smtpPass', 'resendApiKey'],
+  // The admin gets it inside the ready-to-paste Apps Script instead.
+  integrations: ['googleSheetSecret'],
 };
 
 let cache = null;
@@ -222,6 +231,12 @@ function validateLinks(clean) {
     if (raw && !id) throw badRequest('Paste the Google Sheet link, or the long id from it.');
     clean.integrations.googleSheetId = id;
   }
+
+  if (clean.integrations?.googleSheetWebAppUrl !== undefined) {
+    const result = checkAppsScriptUrl(clean.integrations.googleSheetWebAppUrl);
+    if (result.error) throw badRequest(result.error);
+    clean.integrations.googleSheetWebAppUrl = result.value;
+  }
 }
 
 async function get() {
@@ -268,6 +283,15 @@ async function update(patch, userId) {
   return { settings: next, changedSections: Object.keys(clean) };
 }
 
+/** The Google Sheet script's shared secret, created and saved the first time it is needed. */
+async function ensureSheetSecret(userId) {
+  const current = await get();
+  if (current.integrations.googleSheetSecret) return current.integrations.googleSheetSecret;
+  const secret = crypto.randomBytes(24).toString('hex');
+  await update({ integrations: { googleSheetSecret: secret } }, userId);
+  return secret;
+}
+
 /** Settings as the admin form sees them: secrets replaced by "is it set" flags. */
 function forAdmin(settings) {
   const copy = JSON.parse(JSON.stringify(settings));
@@ -312,4 +336,4 @@ async function isNotificationEnabled(audience, key) {
   return settings.notifications?.[audience]?.[key] !== false;
 }
 
-module.exports = { get, update, forAdmin, forPublic, isNotificationEnabled, DEFAULTS };
+module.exports = { get, update, forAdmin, forPublic, isNotificationEnabled, ensureSheetSecret, DEFAULTS };

@@ -81,9 +81,12 @@ const sheetRow = (enquiry) => [
 async function syncToSheet(enquiry) {
   try {
     const { integrations } = await settingsService.get();
-    if (!integrations.googleSheetEnabled || !integrations.googleSheetId) {
+    if (!integrations.googleSheetEnabled) {
       enquiry.sheetStatus = 'skipped';
       enquiry.sheetError = 'Google Sheet sync is switched off in Settings.';
+    } else if (!integrations.googleSheetWebAppUrl) {
+      enquiry.sheetStatus = 'skipped';
+      enquiry.sheetError = 'No Apps Script web app URL is set in Settings → Google Sheet.';
     } else {
       await sheets.appendRow(integrations, SHEET_HEADERS, sheetRow(enquiry));
       enquiry.sheetStatus = 'synced';

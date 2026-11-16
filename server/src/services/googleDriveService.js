@@ -412,7 +412,6 @@ async function getVideoStream(fileId, range) {
 }
 
 module.exports = {
-  // Shared with googleSheetsService, which signs in as the same service account.
   getCredentials,
   isConfigured,
   isDownloadBlocked,

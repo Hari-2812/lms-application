@@ -72,4 +72,23 @@ function extractSpreadsheetId(raw) {
   return /^[a-zA-Z0-9-_]{20,}$/.test(value) ? value : '';
 }
 
-module.exports = { checkUrl, normaliseDriveLink, extractSpreadsheetId, appUrl };
+/**
+ * Validates a Google Apps Script web app URL — the deployed /exec link,
+ * e.g. https://script.google.com/macros/s/<id>/exec (or /a/macros/<domain>/s/…
+ * for Google Workspace accounts). Only script.google.com is accepted, because
+ * the server POSTs to this address. Returns { value } or { error }.
+ */
+function checkAppsScriptUrl(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return { value: '' };
+  const match = /^https:\/\/script\.google\.com\/(?:a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/(exec|dev)(?:[?#].*)?$/.exec(value);
+  if (!match) {
+    return { error: 'Paste the Web app URL from Apps Script → Deploy. It starts with https://script.google.com/macros/s/ and ends in /exec.' };
+  }
+  if (match[1] === 'dev') {
+    return { error: 'That is the /dev test link, which only works while you are signed in. Use the Web app URL ending in /exec from Deploy → Manage deployments.' };
+  }
+  return { value: value.replace(/[?#].*$/, '') };
+}
+
+module.exports = { checkUrl, normaliseDriveLink, extractSpreadsheetId, checkAppsScriptUrl, appUrl };

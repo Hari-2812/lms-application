@@ -1,96 +1,97 @@
-const { google } = require('googleapis');
-const { getCredentials } = require('./googleDriveService');
+const fs = require('fs');
+const path = require('path');
 
 /**
- * Appends rows to a Google Sheet as the server's Google service account —
- * the same account that reads lesson videos from Drive.
+ * Appends rows to a Google Sheet through a Google Apps Script web app that is
+ * attached to the sheet (server/apps-script/EnquiriesSheet.gs). The server
+ * POSTs JSON to the web app's /exec URL; no Google Cloud project, Sheets API
+ * or service account is needed.
  *
  * Setup the admin does once (shown in Admin → LMS settings → Google Sheet):
- *   1. Enable the Google Sheets API in the service account's Cloud project.
- *   2. Share the sheet with the service account's email as Editor.
+ *   1. Sheet → Extensions → Apps Script, paste the script from Settings.
+ *   2. Deploy it as a Web app (Execute as: Me, Who has access: Anyone).
+ *   3. Paste the /exec URL into Settings and press Test connection.
  *
- * Values are written RAW, so text a visitor typed (e.g. "=HYPERLINK(...)")
- * is stored as text and never evaluated as a formula.
+ * Each request carries the shared secret from Settings, which the script
+ * checks, so knowing the URL alone is not enough to add rows.
  */
 
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const SCRIPT_FILE = path.join(__dirname, '../../apps-script/EnquiriesSheet.gs');
+const SECRET_PLACEHOLDER = 'PASTE_SECRET_FROM_LMS_SETTINGS';
+const TIMEOUT_MS = 30000;
 
-let cachedClient = null;
+let scriptTemplate = null;
 
-function sheetsError(message, status = 400) {
+/** The Apps Script source with this site's secret filled in, ready to paste. */
+function scriptSource(secret) {
+  if (scriptTemplate === null) scriptTemplate = fs.readFileSync(SCRIPT_FILE, 'utf8');
+  return secret ? scriptTemplate.replace(SECRET_PLACEHOLDER, secret) : scriptTemplate;
+}
+
+function sheetsError(message, status = 502) {
   const err = new Error(message);
   err.status = status;
-  // Marks errors already worded for the admin, so they are not explained twice.
-  err.explained = true;
   return err;
 }
 
-function getSheetsClient() {
-  if (cachedClient) return cachedClient;
-  const credentials = getCredentials();
-  if (!credentials) {
-    throw sheetsError('No Google service account is configured on the server, so the sheet cannot be written to.', 503);
+/** Plain text of an HTML error page, for the message the admin sees. */
+const pageText = (html) =>
+  String(html)
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+
+/** Turns a response that is not the script's JSON into an instruction the admin can act on. */
+function explainPage(status, text) {
+  if (status === 404) {
+    return sheetsError('Google could not find that Apps Script web app. Copy the Web app URL again from Apps Script → Deploy → Manage deployments.');
   }
-  const auth = new google.auth.JWT({ email: credentials.clientEmail, key: credentials.privateKey, scopes: SCOPES });
-  cachedClient = google.sheets({ version: 'v4', auth });
-  return cachedClient;
-}
-
-/** Turns a Google API failure into an instruction the admin can act on. */
-function explain(err) {
-  const status = Number(err?.code || err?.response?.status) || 0;
-  const detail = String(err?.response?.data?.error?.message || err?.message || '');
-  const email = getCredentials()?.clientEmail || 'the service account';
-
-  if (/has not been used|is disabled|SERVICE_DISABLED/i.test(detail)) {
-    const projectId = getCredentials()?.projectId;
+  if (/accounts\.google\.com|ServiceLogin|Sign in/i.test(text) || status === 401 || status === 403) {
     return sheetsError(
-      `The Google Sheets API is not enabled for the service account's project${projectId ? ` (${projectId})` : ''}. ` +
-        'Enable it in Google Cloud Console → APIs & Services → Library → Google Sheets API, then try again.',
-      502
+      'The Apps Script web app needs sign-in. In Apps Script → Deploy → Manage deployments → Edit, set "Who has access" to "Anyone", then Deploy.'
     );
   }
-  if (status === 403 || /permission/i.test(detail)) {
-    return sheetsError(`The sheet is not shared with ${email}. Open the sheet → Share → add that address as Editor.`, 502);
+  if (/doPost/i.test(text)) {
+    return sheetsError('The Apps Script has no doPost function. Paste the script from Settings into Apps Script and deploy a new version.');
   }
-  if (status === 404 || /not found/i.test(detail)) {
-    return sheetsError('Google could not find that sheet. Check the sheet link in Settings.', 502);
-  }
-  return sheetsError(`Google Sheets error: ${detail || 'unknown error'}`, 502);
+  const detail = pageText(text);
+  return sheetsError(`The Apps Script web app returned an unexpected response (HTTP ${status})${detail ? `: ${detail}` : ''}.`);
 }
 
-const quoteTab = (tab) => `'${String(tab).replace(/'/g, "''")}'`;
+/** POSTs one request to the web app and returns its JSON reply. Throws an explained error. */
+async function callScript(config, payload) {
+  if (!config.googleSheetWebAppUrl) {
+    throw sheetsError('No Apps Script web app URL is set in Settings → Google Sheet.', 400);
+  }
 
-/**
- * Finds the tab to write to: the configured name (created if missing), or
- * the first tab when none is configured. Returns { tab, title }.
- */
-async function resolveTab(sheets, spreadsheetId, tabName) {
-  const { data } = await sheets.spreadsheets.get({ spreadsheetId, fields: 'properties.title,sheets.properties.title' });
-  const tabs = (data.sheets || []).map((s) => s.properties.title);
-  const wanted = String(tabName || '').trim();
-
-  if (!wanted) return { tab: tabs[0] || 'Sheet1', title: data.properties?.title };
-  if (!tabs.includes(wanted)) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title: wanted } } }] },
+  let res;
+  let text;
+  try {
+    // Apps Script answers a POST with a redirect to the result; fetch follows it as a GET.
+    res = await fetch(config.googleSheetWebAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, secret: config.googleSheetSecret, tab: config.googleSheetTab || '' }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+    text = await res.text();
+  } catch (err) {
+    const reason = err.name === 'TimeoutError' ? 'it did not answer in time' : err.message;
+    throw sheetsError(`Could not reach the Apps Script web app: ${reason}.`);
   }
-  return { tab: wanted, title: data.properties?.title };
-}
 
-/** Writes the header row if the tab's first row is empty. */
-async function ensureHeader(sheets, spreadsheetId, tab, headers) {
-  const { data } = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${quoteTab(tab)}!1:1` });
-  if (data.values?.[0]?.some((cell) => String(cell).trim())) return false;
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${quoteTab(tab)}!A1`,
-    valueInputOption: 'RAW',
-    requestBody: { values: [headers] },
-  });
-  return true;
+  let data = null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw explainPage(res.status, text);
+  }
+  if (!data?.ok) throw sheetsError(`Google Sheet script: ${data?.error || 'unknown error'}`);
+  return data;
 }
 
 /**
@@ -98,37 +99,20 @@ async function ensureHeader(sheets, spreadsheetId, tab, headers) {
  * `config` is Settings → integrations. Throws an explained error on failure.
  */
 async function appendRow(config, headers, row) {
-  if (!config.googleSheetId) throw sheetsError('No Google Sheet is set in Settings.');
-  const sheets = getSheetsClient();
-  try {
-    const { tab } = await resolveTab(sheets, config.googleSheetId, config.googleSheetTab);
-    await ensureHeader(sheets, config.googleSheetId, tab, headers);
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: config.googleSheetId,
-      range: `${quoteTab(tab)}!A1`,
-      valueInputOption: 'RAW',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [row.map((cell) => (cell === null || cell === undefined ? '' : String(cell)))] },
-    });
-  } catch (err) {
-    throw err.explained ? err : explain(err);
-  }
+  await callScript(config, {
+    action: 'append',
+    headers,
+    row: row.map((cell) => (cell === null || cell === undefined ? '' : String(cell))),
+  });
 }
 
 /**
  * Checks the sheet can be written to, writing the header row if it is
- * missing. Returns { title, tab, headerWritten }.
+ * missing. Returns { title, tab, url, headerWritten }.
  */
 async function testConnection(config, headers) {
-  if (!config.googleSheetId) throw sheetsError('Add the Google Sheet link first.');
-  const sheets = getSheetsClient();
-  try {
-    const { tab, title } = await resolveTab(sheets, config.googleSheetId, config.googleSheetTab);
-    const headerWritten = await ensureHeader(sheets, config.googleSheetId, tab, headers);
-    return { title, tab, headerWritten };
-  } catch (err) {
-    throw err.explained ? err : explain(err);
-  }
+  const { title, tab, url, headerWritten } = await callScript(config, { action: 'test', headers });
+  return { title, tab, url, headerWritten: Boolean(headerWritten) };
 }
 
-module.exports = { appendRow, testConnection };
+module.exports = { appendRow, testConnection, scriptSource };

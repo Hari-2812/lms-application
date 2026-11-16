@@ -1,7 +1,7 @@
 const activity = require('../services/activityService');
 const mailService = require('../services/mailService');
 const settingsService = require('../services/settingsService');
-const driveService = require('../services/googleDriveService');
+const sheetsService = require('../services/googleSheetsService');
 
 const SECTION_LABELS = {
   branding: 'Branding',
@@ -24,20 +24,21 @@ async function getPublic(_req, res, next) {
   }
 }
 
-/** The settings form's payload, plus the address the admin shares the Google Sheet with. */
+/** The settings form's payload, plus the Apps Script the admin pastes into the Google Sheet. */
 async function adminPayload(settings) {
   return {
     settings: settingsService.forAdmin(settings),
     emailConfigured: await mailService.isConfigured(),
     // Which provider is live and where its key came from — never the key itself.
     emailStatus: await mailService.describe(),
-    serviceAccountEmail: driveService.getConfigSummary().clientEmail || null,
+    sheetScript: sheetsService.scriptSource(settings.integrations.googleSheetSecret),
   };
 }
 
 /** GET /api/admin/settings */
-async function getAdmin(_req, res, next) {
+async function getAdmin(req, res, next) {
   try {
+    await settingsService.ensureSheetSecret(req.user._id);
     res.json(await adminPayload(await settingsService.get()));
   } catch (err) {
     next(err);

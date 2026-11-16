@@ -54,9 +54,10 @@ const Input = forwardRef(function Input(
             title={revealed ? 'Hide password' : 'Show password'}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-2 text-ink-400 transition hover:text-ink-700"
           >
-            {/* The icon shows the current state: an open eye while the
-                password is visible, a closed eye while it is masked. */}
-            {revealed ? <Eye className="h-4 w-4" aria-hidden="true" /> : <EyeOff className="h-4 w-4" aria-hidden="true" />}
+            {/* The icon shows what a click will do, matching the label: an
+                open eye ("Show password") while masked, a crossed-out eye
+                ("Hide password") while visible. */}
+            {revealed ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
           </button>
         )}
       </div>

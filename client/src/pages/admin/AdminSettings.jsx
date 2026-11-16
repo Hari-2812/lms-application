@@ -81,7 +81,8 @@ export default function AdminSettings() {
   const [emailConfigured, setEmailConfigured] = useState(false);
   // { configured, provider: 'resend' | 'smtp', source: 'settings' | 'env', fromAddress, testSender }
   const [emailStatus, setEmailStatus] = useState({ configured: false });
-  const [serviceAccountEmail, setServiceAccountEmail] = useState(null);
+  // The Apps Script for the Google Sheet, with this site's secret filled in.
+  const [sheetScript, setSheetScript] = useState('');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [sheetTesting, setSheetTesting] = useState(false);
@@ -106,7 +107,7 @@ export default function AdminSettings() {
         setSettings(data.settings);
         setEmailConfigured(data.emailConfigured);
         setEmailStatus(data.emailStatus || { configured: data.emailConfigured });
-        setServiceAccountEmail(data.serviceAccountEmail);
+        setSheetScript(data.sheetScript || '');
       })
       .catch((err) => flash.error(toErrorMessage(err)));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once
@@ -155,7 +156,7 @@ export default function AdminSettings() {
       setSettings(data.settings);
       setEmailConfigured(data.emailConfigured);
       setEmailStatus(data.emailStatus || { configured: data.emailConfigured });
-      setServiceAccountEmail(data.serviceAccountEmail);
+      setSheetScript(data.sheetScript || '');
       refreshBranding();
       flash.success('Settings saved.');
     } catch (err) {
@@ -203,6 +204,15 @@ export default function AdminSettings() {
       flash.error(toErrorMessage(err));
     } finally {
       setSheetTesting(false);
+    }
+  };
+
+  const onCopyScript = async () => {
+    try {
+      await navigator.clipboard.writeText(sheetScript);
+      flash.success('Script copied. Paste it into Apps Script (Extensions → Apps Script in the sheet).');
+    } catch {
+      flash.error('Could not copy automatically. Open "Show script", select all of it and copy it.');
     }
   };
 
@@ -665,27 +675,39 @@ export default function AdminSettings() {
             )
           }
         >
-          <ol className="mb-6 space-y-2 rounded-xl border border-primary-100 bg-primary-50/50 p-4 text-[13px] leading-relaxed text-ink-700">
+          <ol className="mb-4 space-y-2 rounded-xl border border-primary-100 bg-primary-50/50 p-4 text-[13px] leading-relaxed text-ink-700">
             <li>
-              <strong className="font-semibold">1. Share the sheet</strong> with this address as <strong className="font-semibold">Editor</strong>:{' '}
-              {serviceAccountEmail ? (
-                <span className="inline-flex flex-wrap items-center gap-1.5">
-                  <code className="break-all rounded bg-white px-1.5 py-0.5 text-[12px] text-primary-800">{serviceAccountEmail}</code>
-                  <button type="button" onClick={() => navigator.clipboard?.writeText(serviceAccountEmail)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary-700 hover:text-primary-800">
-                    <Copy className="h-3.5 w-3.5" aria-hidden="true" /> Copy
-                  </button>
-                </span>
-              ) : (
-                <span className="text-red-600">no Google service account is set up on the server yet.</span>
-              )}
+              <strong className="font-semibold">1. Add the script to the sheet.</strong> Open the Google Sheet → <strong className="font-semibold">Extensions → Apps Script</strong>, delete what is in Code.gs, paste the script below and press Save.
             </li>
             <li>
-              <strong className="font-semibold">2. Turn on the Google Sheets API</strong> for that service account&apos;s Google Cloud project (APIs &amp; Services → Library → Google Sheets API → Enable). This only needs doing once.
+              <strong className="font-semibold">2. Deploy it as a web app.</strong> Deploy → New deployment → gear icon → <strong className="font-semibold">Web app</strong>. Set <em>Execute as</em> to <strong className="font-semibold">Me</strong> and <em>Who has access</em> to <strong className="font-semibold">Anyone</strong>, press Deploy and allow access when Google asks.
             </li>
             <li>
-              <strong className="font-semibold">3. Paste the sheet link below, save, then press Test connection.</strong> The column headings are added automatically if the sheet is empty.
+              <strong className="font-semibold">3. Paste the Web app URL below</strong> (it ends in <code className="rounded bg-white px-1 text-[12px]">/exec</code>), save, then press Test connection. The column headings are added automatically if the sheet is empty.
             </li>
           </ol>
+
+          <div className="mb-6 rounded-xl border border-ink-100">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+              <div>
+                <p className="text-[13px] font-semibold text-ink-800">Apps Script code</p>
+                <p className="text-[12px] text-ink-500">Contains this site&apos;s private key, so only paste it into your own sheet.</p>
+              </div>
+              <Button size="sm" variant="secondary" onClick={onCopyScript} disabled={!sheetScript}>
+                <Copy className="h-4 w-4" aria-hidden="true" />
+                Copy script
+              </Button>
+            </div>
+            <details className="border-t border-ink-100">
+              <summary className="cursor-pointer px-4 py-2 text-[12px] font-semibold text-primary-700 hover:text-primary-800">Show script</summary>
+              <pre className="max-h-80 overflow-auto border-t border-ink-100 bg-ink-50 p-4 text-[12px] leading-relaxed text-ink-800">
+                <code>{sheetScript}</code>
+              </pre>
+            </details>
+            <p className="border-t border-ink-100 px-4 py-2 text-[12px] text-ink-500">
+              Changed the script later? Deploy → Manage deployments → Edit → Version: New version → Deploy. The URL stays the same.
+            </p>
+          </div>
 
           <div className="divide-y divide-ink-100">
             <Toggle
@@ -696,13 +718,22 @@ export default function AdminSettings() {
               onChange={set('integrations', 'googleSheetEnabled')}
             />
           </div>
+          <div className="mt-4">
+            <Input
+              label="Apps Script web app URL"
+              value={integrations.googleSheetWebAppUrl}
+              onChange={field('integrations', 'googleSheetWebAppUrl')}
+              placeholder="https://script.google.com/macros/s/…/exec"
+              hint="From Apps Script → Deploy → Manage deployments → Web app URL."
+            />
+          </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_14rem]">
             <Input
-              label="Google Sheet link"
+              label="Google Sheet link (optional)"
               value={integrations.googleSheetId}
               onChange={field('integrations', 'googleSheetId')}
               placeholder="https://docs.google.com/spreadsheets/d/…"
-              hint="The full link or just the long id from it."
+              hint="Only used for the Open sheet button."
             />
             <Input
               label="Tab name (optional)"
@@ -714,7 +745,7 @@ export default function AdminSettings() {
             />
           </div>
           <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-ink-100 pt-5">
-            <Button variant="secondary" onClick={onTestSheet} loading={sheetTesting} disabled={!integrations.googleSheetId}>
+            <Button variant="secondary" onClick={onTestSheet} loading={sheetTesting} disabled={!integrations.googleSheetWebAppUrl}>
               <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
               Test connection
             </Button>

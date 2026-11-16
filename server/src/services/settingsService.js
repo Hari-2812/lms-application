@@ -57,7 +57,7 @@ const DEFAULTS = {
     googleSheetSecret: '',
     // Only used for the "Open sheet" button.
     googleSheetId: '1Zem5lhcOYiys20LsjTRuIyqTeZD5HLoD-QkM7mKkgao',
-    // Blank = the first tab in the spreadsheet.
+    // Blank = the LMS_ENQUIRIES tab (the script's default), created if missing.
     googleSheetTab: '',
   },
   // Fixed text on the certificate template. The learner name, course name and

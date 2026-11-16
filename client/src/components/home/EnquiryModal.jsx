@@ -13,14 +13,6 @@ const FALLBACK_PROGRAM = 'Nationwide Gen AI Program';
 
 const COUNTRY_CODES = ['+91', '+1', '+44', '+61', '+65', '+971', '+966', '+974', '+965', '+968', '+60', '+49'];
 
-const TOPICS = [
-  ['Switch Smart', 'How to Transition into Analytics & AI without quitting current job?'],
-  ['Crack Internships & Placements', 'How Fresher, career gap, or working professional secure real opportunities?'],
-  ['Build a Standout Portfolio', 'How to build Industry-level projects that brings organic job calls?'],
-  ["Fix What's Missing", 'Already learned Data Science? Identify the gap blocking your breakthrough.'],
-  ['Project under our experts', 'Unlock inbound opportunities by building projects with our expert panel.'],
-];
-
 const blank = {
   name: '',
   email: '',
@@ -36,26 +28,32 @@ const blank = {
 
 const validNumber = (value) => DIGITS.test(value.trim()) && value.replace(/\D/g, '').length >= 6;
 
-/** Label + control + error, styled to match the popup rather than the dashboard forms. */
+/**
+ * Label + control + error, styled to match the popup rather than the dashboard
+ * forms. The error sits beside the label, so showing it does not make the
+ * popup taller and push it into scrolling.
+ */
 function Field({ id, label, required, error, children }) {
   return (
     <div>
-      <label htmlFor={id} className="mb-2 block text-[15px] font-semibold text-ink-800">
-        {label}
-        {required && <span className="ml-1 text-ink-500" aria-hidden="true">*</span>}
-      </label>
+      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2">
+        <label htmlFor={id} className="block text-[15px] font-semibold text-ink-800">
+          {label}
+          {required && <span className="ml-1 text-ink-500" aria-hidden="true">*</span>}
+        </label>
+        {error && (
+          <p id={`${id}-error`} className="text-xs font-medium text-red-600">
+            {error}
+          </p>
+        )}
+      </div>
       {children}
-      {error && (
-        <p id={`${id}-error`} className="mt-1.5 text-xs font-medium text-red-600">
-          {error}
-        </p>
-      )}
     </div>
   );
 }
 
 const control = (error, width = 'w-full') =>
-  `h-[52px] ${width} rounded-xl border bg-white px-4 text-[15px] text-ink-900 placeholder:text-ink-400 transition focus:outline-none focus:ring-2 ${
+  `h-11 ${width} rounded-xl border bg-white px-4 text-[15px] text-ink-900 placeholder:text-ink-400 transition focus:outline-none focus:ring-2 ${
     error ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : 'border-ink-200 focus:border-primary-500 focus:ring-primary-500/20'
   }`;
 
@@ -92,12 +90,13 @@ export default function EnquiryModal({ open, onClose }) {
   const validate = () => {
     const next = {};
     if (form.name.trim().length < 2) next.name = 'Enter your full name';
-    if (!EMAIL.test(form.email.trim())) next.email = 'Enter a valid email address';
-    if (!validNumber(form.phone)) next.phone = 'Enter a valid phone number';
+    // Kept short: each message shares a line with its label.
+    if (!EMAIL.test(form.email.trim())) next.email = 'Enter a valid email';
+    if (!validNumber(form.phone)) next.phone = 'Enter a valid number';
     if (!form.careerStatus) next.careerStatus = 'Select your status';
     if (form.city.trim().length < 2) next.city = 'Enter your location';
-    if (!validNumber(form.alternatePhone)) next.alternatePhone = 'Enter a valid alternate number';
-    if (form.message.trim().length < 3) next.message = 'Tell us briefly what you expect';
+    if (!validNumber(form.alternatePhone)) next.alternatePhone = 'Invalid number';
+    if (form.message.trim().length < 3) next.message = form.message.trim() ? 'Too short' : 'Required';
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -123,43 +122,28 @@ export default function EnquiryModal({ open, onClose }) {
   const describe = (key) => (errors[key] ? `enquiry-${key}-error` : undefined);
 
   return (
-    <Modal open={open} onClose={onClose} label="Enroll in the Nationwide Gen AI Program" panelClassName="max-w-6xl p-0">
+    <Modal open={open} onClose={onClose} label="Enroll in the Nationwide Gen AI Program" panelClassName="max-w-5xl p-0">
       <div className="h-1.5 bg-gradient-to-r from-primary-800 via-primary-600 to-primary-400" aria-hidden="true" />
 
-      <div className="grid md:grid-cols-[minmax(0,46%)_minmax(0,1fr)]">
+      {/* grid-cols-1 keeps the single phone column to the screen width instead of its widest content. */}
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,40%)_minmax(0,1fr)]">
         {/* --- left: what the program / call is about ------------------- */}
-        <aside className="border-b border-ink-100 bg-slate-50 px-6 py-8 text-center sm:px-10 md:border-b-0 md:border-r md:py-10">
-          <h2 className="font-['Sora',sans-serif] text-[26px] font-extrabold leading-snug text-ink-950 sm:text-[34px]">
+        <aside className="flex flex-col justify-center border-b border-ink-100 bg-slate-50 px-6 py-6 text-center sm:px-10 md:border-b-0 md:border-r md:py-8">
+          <h2 className="font-['Sora',sans-serif] text-[24px] font-extrabold leading-snug text-ink-950 sm:text-[32px]">
             Enroll{' '}
             <span className="inline-block rounded-md bg-primary-600 px-3 py-0.5 text-white">Nationwide</span>
             <br />
             Gen AI Program
           </h2>
-          <p className="mx-auto mt-6 max-w-md text-[15px] leading-7 text-ink-600">
+          <p className="mx-auto mt-4 max-w-md text-[15px] leading-7 text-ink-600 md:mt-6">
             Clarify all your doubts with our Data Experts Panel who empowered{' '}
             <strong className="font-semibold text-ink-800">1000+ aspirants worldwide</strong> to build successful careers in Data
             Analytics and AI across 11+ industries.
           </p>
-
-          <div className="mt-8 hidden border-t border-ink-200 pt-8 text-left md:block">
-            <p className="text-center text-sm font-medium uppercase tracking-[0.18em] text-ink-500">What you can discuss?</p>
-            <ol className="mt-6 space-y-5">
-              {TOPICS.map(([head, body], index) => (
-                <li key={head} className="flex gap-4">
-                  <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-[3px] border-2 border-ink-900 bg-primary-600 text-xs font-bold text-white">
-                    {index + 1}
-                  </span>
-                  <p className="text-[15.5px] leading-7 text-ink-600">
-                    <strong className="font-semibold text-ink-900">{head} –</strong> {body}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          </div>
         </aside>
 
         {/* --- right: the form ------------------------------------------ */}
-        <section className="px-6 py-8 sm:px-10 md:py-12">
+        <section className="px-6 py-6 sm:px-10 md:py-7">
           {sent ? (
             <div className="flex h-full flex-col items-center justify-center py-10 text-center">
               <CheckCircle2 className="h-14 w-14 text-emerald-500" aria-hidden="true" />
@@ -182,7 +166,7 @@ export default function EnquiryModal({ open, onClose }) {
               <h3 className="font-['Sora',sans-serif] text-2xl font-extrabold text-ink-950">Book Your Session</h3>
               <p className="mt-1.5 text-[15px] text-ink-600">Fill in your details — our team will reach out within 24 hours</p>
 
-              <form onSubmit={onSubmit} noValidate className="mt-7">
+              <form onSubmit={onSubmit} noValidate className="mt-5">
                 {submitError && (
                   <div role="alert" className="mb-5 flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -190,7 +174,7 @@ export default function EnquiryModal({ open, onClose }) {
                   </div>
                 )}
 
-                <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                   <Field id="enquiry-name" label="Name" required error={errors.name}>
                     <input id="enquiry-name" className={control(errors.name)} autoComplete="name" maxLength={80} placeholder="Your full name" value={form.name} onChange={set('name')} aria-invalid={Boolean(errors.name)} aria-describedby={describe('name')} />
                   </Field>
@@ -241,7 +225,7 @@ export default function EnquiryModal({ open, onClose }) {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="mt-7 inline-flex h-12 min-w-[150px] items-center justify-center gap-2 rounded-lg bg-primary-600 px-8 text-[15px] font-semibold text-white shadow-[0_8px_20px_-6px_rgba(36,80,235,0.6)] transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="mt-6 inline-flex h-12 min-w-[150px] items-center justify-center gap-2 rounded-lg bg-primary-600 px-8 text-[15px] font-semibold text-white shadow-[0_8px_20px_-6px_rgba(36,80,235,0.6)] transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CalendarCheck className="h-4 w-4" aria-hidden="true" />}
                   {submitting ? 'Booking…' : 'Book'}

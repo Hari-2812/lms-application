@@ -1,10 +1,24 @@
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { GraduationCap, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useBranding } from '../../context/BrandingContext.jsx';
 import { resolveMediaUrl } from '../../api/client';
 import { safeExternalUrl } from '../../utils/url.js';
 import SmartImg from './SmartImg.jsx';
+import EnquiryModal from './EnquiryModal.jsx';
+
+// The Enroll Now form opens by itself shortly after the homepage loads: once
+// per browser session (closing it and coming back to the homepage does not
+// reopen it), and not for people who are already signed in.
+//
+// A link to /?enroll=1 (the "Enroll Now" button on analyticsavenue.in) always
+// opens it straight away — the visitor clicked to enrol — and the parameter is
+// then removed from the address bar so a reload does not reopen it.
+const AUTO_OPEN_KEY = 'aa.enquiryAutoShown';
+const AUTO_OPEN_DELAY_MS = 1000;
+const LINKED_OPEN_DELAY_MS = 300;
+
 // Files in /public are served from the site root — reference them by URL, don't import them.
 const defaultHeroImage = '/homepage/mentors/mentooors1.jpeg';
 
@@ -13,6 +27,35 @@ const points = ['Data Analytics', 'Data Engineering', 'BI', 'Machine Learning', 
 export default function HeroSection() {
   const { isAuthenticated } = useAuth();
   const { homepage } = useBranding();
+  const [enquiryOpen, setEnquiryOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const linked = params.get('enroll') === '1';
+
+  useEffect(() => {
+    if (!linked) {
+      if (isAuthenticated) return undefined;
+      try {
+        if (sessionStorage.getItem(AUTO_OPEN_KEY)) return undefined;
+      } catch {
+        /* storage blocked: show it anyway */
+      }
+    }
+    const timer = setTimeout(() => {
+      setEnquiryOpen(true);
+      try {
+        sessionStorage.setItem(AUTO_OPEN_KEY, '1');
+      } catch {
+        /* storage blocked: it may show again on the next visit to the homepage */
+      }
+      if (linked) {
+        const next = new URLSearchParams(params);
+        next.delete('enroll');
+        setParams(next, { replace: true });
+      }
+    }, linked ? LINKED_OPEN_DELAY_MS : AUTO_OPEN_DELAY_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- params/setParams change with the URL; `linked` covers it
+  }, [isAuthenticated, linked]);
 
   // The right-hand image is set in Admin → LMS settings → Homepage, e.g. for an
   // upcoming event, and can link to that event's page.
@@ -71,6 +114,8 @@ export default function HeroSection() {
           photo
         )}
       </div>
+
+      <EnquiryModal open={enquiryOpen} onClose={() => setEnquiryOpen(false)} />
     </section>
   );
 }

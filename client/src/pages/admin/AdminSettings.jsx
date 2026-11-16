@@ -50,6 +50,9 @@ const TABS = [
 ];
 const TAB_VALUES = TABS.map((t) => t.value);
 
+// The one line added to the sheet's existing doPost (see server/src/apps-script/LmsEnquiries.gs).
+const SHEET_ROUTE_LINE = 'if (data.formType === "lms_enquiry") return handleLmsEnquiry(data);';
+
 const ADMIN_EVENTS = [
   ['learnerRegistered', 'New learner registered'],
   ['paymentReceived', 'Payment received'],
@@ -207,14 +210,16 @@ export default function AdminSettings() {
     }
   };
 
-  const onCopyScript = async () => {
+  const copyText = async (text, done) => {
     try {
-      await navigator.clipboard.writeText(sheetScript);
-      flash.success('Script copied. Paste it into Apps Script (Extensions → Apps Script in the sheet).');
+      await navigator.clipboard.writeText(text);
+      flash.success(done);
     } catch {
-      flash.error('Could not copy automatically. Open "Show script", select all of it and copy it.');
+      flash.error('Could not copy automatically. Select the text and copy it yourself.');
     }
   };
+  const onCopyScript = () => copyText(sheetScript, 'Script copied. Paste it into a new LmsEnquiries file in Apps Script.');
+  const onCopyRoute = () => copyText(SHEET_ROUTE_LINE, 'Line copied. Paste it inside doPost, right after the JSON.parse line.');
 
   const onTestEmail = async () => {
     setTesting(true);
@@ -677,20 +682,29 @@ export default function AdminSettings() {
         >
           <ol className="mb-4 space-y-2 rounded-xl border border-primary-100 bg-primary-50/50 p-4 text-[13px] leading-relaxed text-ink-700">
             <li>
-              <strong className="font-semibold">1. Add the script to the sheet.</strong> Open the Google Sheet → <strong className="font-semibold">Extensions → Apps Script</strong>, delete what is in Code.gs, paste the script below and press Save.
+              <strong className="font-semibold">1. Add a new script file.</strong> Open the Google Sheet → <strong className="font-semibold">Extensions → Apps Script</strong>. Leave Code.gs as it is. Next to <em>Files</em> press <strong className="font-semibold">+ → Script</strong>, name it <code className="rounded bg-white px-1 text-[12px]">LmsEnquiries</code>, replace its contents with the script below and Save.
             </li>
             <li>
-              <strong className="font-semibold">2. Deploy it as a web app.</strong> Deploy → New deployment → gear icon → <strong className="font-semibold">Web app</strong>. Set <em>Execute as</em> to <strong className="font-semibold">Me</strong> and <em>Who has access</em> to <strong className="font-semibold">Anyone</strong>, press Deploy and allow access when Google asks.
+              <strong className="font-semibold">2. Route the LMS form in Code.gs.</strong> Inside <code className="rounded bg-white px-1 text-[12px]">doPost</code>, right after <code className="rounded bg-white px-1 text-[12px]">const data = JSON.parse(e.postData.contents);</code>, add this line and Save:
+              <span className="mt-1.5 flex flex-wrap items-center gap-2">
+                <code className="break-all rounded bg-white px-2 py-1 text-[12px] text-primary-800">{SHEET_ROUTE_LINE}</code>
+                <button type="button" onClick={onCopyRoute} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary-700 hover:text-primary-800">
+                  <Copy className="h-3.5 w-3.5" aria-hidden="true" /> Copy line
+                </button>
+              </span>
             </li>
             <li>
-              <strong className="font-semibold">3. Paste the Web app URL below</strong> (it ends in <code className="rounded bg-white px-1 text-[12px]">/exec</code>), save, then press Test connection. The column headings are added automatically if the sheet is empty.
+              <strong className="font-semibold">3. Publish the change.</strong> Deploy → <strong className="font-semibold">Manage deployments</strong> → Edit (pencil) → Version: <strong className="font-semibold">New version</strong> → Deploy. The URL stays the same, so the website&apos;s forms keep working. (No deployment yet? Deploy → New deployment → Web app, Execute as <em>Me</em>, access <em>Anyone</em>.)
+            </li>
+            <li>
+              <strong className="font-semibold">4. Paste the Web app URL below</strong> (the same one the website uses, ending in <code className="rounded bg-white px-1 text-[12px]">/exec</code>), save, then press Test connection. Enquiries go to the <code className="rounded bg-white px-1 text-[12px]">LMS_ENQUIRIES</code> tab, with column headings added automatically.
             </li>
           </ol>
 
           <div className="mb-6 rounded-xl border border-ink-100">
             <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
               <div>
-                <p className="text-[13px] font-semibold text-ink-800">Apps Script code</p>
+                <p className="text-[13px] font-semibold text-ink-800">LmsEnquiries script</p>
                 <p className="text-[12px] text-ink-500">Contains this site&apos;s private key, so only paste it into your own sheet.</p>
               </div>
               <Button size="sm" variant="secondary" onClick={onCopyScript} disabled={!sheetScript}>
@@ -705,7 +719,7 @@ export default function AdminSettings() {
               </pre>
             </details>
             <p className="border-t border-ink-100 px-4 py-2 text-[12px] text-ink-500">
-              Changed the script later? Deploy → Manage deployments → Edit → Version: New version → Deploy. The URL stays the same.
+              Any change in Apps Script only goes live after Deploy → Manage deployments → Edit → Version: New version → Deploy.
             </p>
           </div>
 
@@ -740,8 +754,8 @@ export default function AdminSettings() {
               value={integrations.googleSheetTab}
               maxLength={80}
               onChange={field('integrations', 'googleSheetTab')}
-              placeholder="First tab"
-              hint="Created automatically if it does not exist."
+              placeholder="LMS_ENQUIRIES"
+              hint="Blank = LMS_ENQUIRIES. Created if it does not exist."
             />
           </div>
           <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-ink-100 pt-5">

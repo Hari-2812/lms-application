@@ -2,29 +2,36 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Appends rows to a Google Sheet through a Google Apps Script web app that is
- * attached to the sheet (server/apps-script/EnquiriesSheet.gs). The server
- * POSTs JSON to the web app's /exec URL; no Google Cloud project, Sheets API
- * or service account is needed.
- *
- * Setup the admin does once (shown in Admin → LMS settings → Google Sheet):
- *   1. Sheet → Extensions → Apps Script, paste the script from Settings.
- *   2. Deploy it as a Web app (Execute as: Me, Who has access: Anyone).
- *   3. Paste the /exec URL into Settings and press Test connection.
+ * Appends rows to a Google Sheet through the sheet's Google Apps Script web
+ * app. The sheet's script may already serve other forms (the website's CTA,
+ * contact and job forms), so the LMS part is an add-on file
+ * (src/apps-script/LmsEnquiries.gs) reached with formType "lms_enquiry" —
+ * one line in the existing doPost routes it. No Google Cloud project, Sheets
+ * API or service account is needed.
  *
  * Each request carries the shared secret from Settings, which the script
- * checks, so knowing the URL alone is not enough to add rows.
+ * checks: the web app URL is public, because the website's forms call it
+ * from the browser.
  */
 
-const SCRIPT_FILE = path.join(__dirname, '../../apps-script/EnquiriesSheet.gs');
+const SCRIPT_FILE = path.join(__dirname, '../apps-script/LmsEnquiries.gs');
 const SECRET_PLACEHOLDER = 'PASTE_SECRET_FROM_LMS_SETTINGS';
+const FORM_TYPE = 'lms_enquiry';
 const TIMEOUT_MS = 30000;
 
 let scriptTemplate = null;
 
-/** The Apps Script source with this site's secret filled in, ready to paste. */
+/** The Apps Script add-on with this site's secret filled in, ready to paste ('' if the file is missing). */
 function scriptSource(secret) {
-  if (scriptTemplate === null) scriptTemplate = fs.readFileSync(SCRIPT_FILE, 'utf8');
+  if (scriptTemplate === null) {
+    try {
+      scriptTemplate = fs.readFileSync(SCRIPT_FILE, 'utf8');
+    } catch (err) {
+      // Never take the settings page down over this; it just shows no script.
+      console.error('[sheets] Apps Script template missing:', err.message);
+      return '';
+    }
+  }
   return secret ? scriptTemplate.replace(SECRET_PLACEHOLDER, secret) : scriptTemplate;
 }
 
@@ -74,7 +81,7 @@ async function callScript(config, payload) {
     res = await fetch(config.googleSheetWebAppUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, secret: config.googleSheetSecret, tab: config.googleSheetTab || '' }),
+      body: JSON.stringify({ ...payload, formType: FORM_TYPE, secret: config.googleSheetSecret, tab: config.googleSheetTab || '' }),
       redirect: 'follow',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -89,6 +96,13 @@ async function callScript(config, payload) {
     data = JSON.parse(text);
   } catch {
     throw explainPage(res.status, text);
+  }
+  // The sheet's own doPost answers { success, message } — so the LMS line is not in it yet.
+  if (data && data.ok === undefined && 'success' in data) {
+    throw sheetsError(
+      `The sheet's Apps Script did not route the LMS form (it said: "${data.message || 'no message'}"). ` +
+        'Add the LmsEnquiries file and the lms_enquiry line to doPost, then Deploy → Manage deployments → Edit → New version.'
+    );
   }
   if (!data?.ok) throw sheetsError(`Google Sheet script: ${data?.error || 'unknown error'}`);
   return data;
